@@ -1,0 +1,225 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Montserrat:wght@500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* BuildFlow Color Palette */
+  --color-primary: #4176B5;
+  --color-primary-dark: #23498A;
+  --color-accent: #679C5A;
+  --color-bg: #F7FAFC;
+  --color-surface: #FFFFFF;
+  --color-text: #1F2937;
+  --bf-border: rgba(31,41,55,0.08);
+  --bf-card-shadow: 0 6px 18px rgba(35,73,138,0.06);
+  --bf-radius-md: 8px;
+}
+
+html, body {
+  height: 100%;
+}
+
+body {
+  font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  color: var(--color-text);
+  background-color: var(--color-bg);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Layout */
+.container {
+  @apply max-w-6xl mx-auto px-6 py-8;
+}
+
+/* Typography */
+.page-title {
+  font-family: 'Montserrat', 'Inter', system-ui, sans-serif;
+  font-weight: 700;
+  color: var(--color-primary-dark);
+}
+
+.text-link {
+  color: rgba(31,41,55,0.85);
+  font-weight: 600;
+  transition: color 0.15s ease;
+}
+
+.text-link:hover {
+  color: var(--color-primary-dark);
+}
+
+.muted {
+  color: rgba(31,41,55,0.6);
+}
+
+/* Cards */
+.card {
+  @apply bg-white rounded-lg p-6;
+  background-color: var(--color-surface);
+  border: 1px solid var(--bf-border);
+  box-shadow: var(--bf-card-shadow);
+}
+
+/* Buttons */
+.btn-primary {
+  @apply inline-flex items-center justify-center px-4 py-2 rounded-md text-white font-medium transition-all;
+  background: linear-gradient(180deg, var(--color-primary), var(--color-primary-dark));
+  box-shadow: 0 2px 4px rgba(35,73,138,0.15);
+}
+
+.btn-primary:hover {
+  box-shadow: 0 4px 8px rgba(35,73,138,0.25);
+  transform: translateY(-1px);
+}
+
+.btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.btn-secondary {
+  @apply inline-flex items-center justify-center px-4 py-2 rounded-md font-medium transition-all;
+  color: var(--color-primary-dark);
+  background: transparent;
+  border: 1px solid var(--bf-border);
+}
+
+.btn-secondary:hover {
+  background: rgba(65,118,181,0.05);
+  border-color: var(--color-primary);
+}
+
+.btn-accent {
+  @apply inline-flex items-center justify-center px-4 py-2 rounded-md text-white font-medium transition-all;
+  background: linear-gradient(180deg, var(--color-accent), #5a8a4f);
+  box-shadow: 0 2px 4px rgba(103,156,90,0.15);
+}
+
+.btn-accent:hover {
+  box-shadow: 0 4px 8px rgba(103,156,90,0.25);
+}
+
+.btn-ghost {
+  @apply inline-flex items-center px-3 py-1.5 rounded-md text-sm font-medium;
+  color: var(--color-primary-dark);
+  background: transparent;
+}
+
+.btn-ghost:hover {
+  background: rgba(65,118,181,0.05);
+}
+
+/* Form Elements */
+input, textarea, select {
+  @apply w-full px-3 py-2 rounded-md text-sm;
+  border: 1px solid var(--bf-border);
+  background: #ffffff;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+input:focus, textarea:focus, select:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px rgba(65,118,181,0.1);
+}
+
+input:disabled, textarea:disabled, select:disabled {
+  background: #f3f4f6;
+  color: #9ca3af;
+}
+
+/* Labels */
+.field-label {
+  @apply block text-sm font-semibold mb-1;
+  color: var(--color-text);
+}
+
+.field-hint {
+  @apply text-xs mt-1;
+  color: rgba(31,41,55,0.6);
+}
+
+/* Navbar */
+.navbar {
+  @apply flex items-center justify-between py-4 px-6;
+  border-bottom: 1px solid rgba(31,41,55,0.06);
+  background: var(--color-surface);
+}
+
+.nav-link {
+  @apply text-sm font-medium transition-colors;
+  color: rgba(31,41,55,0.7);
+}
+
+.nav-link:hover {
+  color: var(--color-primary-dark);
+}
+
+/* Input field with consistent styling */
+.input-field {
+  @apply w-full px-4 py-2.5 rounded-md text-sm;
+  border: 1px solid var(--bf-border);
+  background: #ffffff;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.input-field:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px rgba(65,118,181,0.1);
+}
+
+/* Status indicators */
+.status-online {
+  @apply inline-flex items-center gap-1.5 text-sm;
+  color: var(--color-accent);
+}
+
+.status-online::before {
+  content: '';
+  @apply w-2 h-2 rounded-full;
+  background: var(--color-accent);
+}
+
+/* Alert/Message boxes */
+.alert-error {
+  @apply px-4 py-3 rounded-md text-sm;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #dc2626;
+}
+
+.alert-success {
+  @apply px-4 py-3 rounded-md text-sm;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  color: #16a34a;
+}
+
+.alert-info {
+  @apply px-4 py-3 rounded-md text-sm;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  color: var(--color-primary-dark);
+}
+
+/* Dashboard stats */
+.stat-card {
+  @apply p-4 rounded-lg;
+  background: var(--color-surface);
+  border: 1px solid var(--bf-border);
+}
+
+.stat-value {
+  @apply text-2xl font-bold;
+  color: var(--color-primary-dark);
+}
+
+.stat-label {
+  @apply text-sm;
+  color: rgba(31,41,55,0.6);
+}

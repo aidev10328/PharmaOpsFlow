@@ -1,0 +1,190 @@
+{
+  "name": "PharmaOpsFlow - Daily SLA Evaluation",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 6 * * *"
+            }
+          ]
+        }
+      },
+      "id": "trigger-daily",
+      "name": "Daily 6 AM Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.PHARMAOPSFLOW_API_URL}}/v1/sla/run",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": []
+        },
+        "sendHeaders": false,
+        "sendBody": false,
+        "options": {}
+      },
+      "id": "run-sla-evaluation",
+      "name": "Run SLA Evaluation",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [460, 300],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "pharmaopsflow-api-key",
+          "name": "PharmaOpsFlow API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "check-violations",
+              "leftValue": "={{ $json.submissionViolations + $json.processingViolations }}",
+              "rightValue": "0",
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-violations",
+      "name": "Check for Violations",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "summary-text",
+              "name": "summary",
+              "value": "=SLA Evaluation Complete for {{ $json.yearMonth }}\n\nPharmacies Evaluated: {{ $json.pharmaciesEvaluated }}\nSubmission Violations: {{ $json.submissionViolations }}\nProcessing Violations: {{ $json.processingViolations }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "format-notification",
+      "name": "Format Violation Alert",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.2,
+      "position": [900, 200]
+    },
+    {
+      "parameters": {
+        "content": "={{ $json.summary }}",
+        "options": {}
+      },
+      "id": "log-result",
+      "name": "Log Result",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [1120, 200],
+      "notes": "Replace with Slack/Email notification in production"
+    },
+    {
+      "parameters": {},
+      "id": "no-violations",
+      "name": "No Violations",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [900, 400],
+      "notes": "All pharmacies compliant"
+    }
+  ],
+  "connections": {
+    "Daily 6 AM Trigger": {
+      "main": [
+        [
+          {
+            "node": "Run SLA Evaluation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run SLA Evaluation": {
+      "main": [
+        [
+          {
+            "node": "Check for Violations",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check for Violations": {
+      "main": [
+        [
+          {
+            "node": "Format Violation Alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Violations",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Violation Alert": {
+      "main": [
+        [
+          {
+            "node": "Log Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "name": "PharmaOpsFlow",
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z"
+    },
+    {
+      "name": "SLA",
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z"
+    }
+  ],
+  "triggerCount": 0,
+  "updatedAt": "2024-01-01T00:00:00.000Z",
+  "versionId": "1"
+}

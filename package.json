@@ -1,0 +1,29 @@
+{
+  "name": "pharmaopsflow",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm run dev:api\" \"npm run dev:web\"",
+    "dev:api": "cd apps/api && npm run dev",
+    "dev:web": "cd apps/web && npm run dev",
+    "build": "npm run build:api && npm run build:web",
+    "build:api": "cd apps/api && npm run build",
+    "build:web": "cd apps/web && npm run build",
+    "db:generate": "cd apps/api && npm run prisma:generate",
+    "db:migrate": "cd apps/api && npm run prisma:migrate",
+    "db:seed": "cd apps/api && npm run prisma:seed",
+    "db:studio": "cd apps/api && npm run prisma:studio"
+  },
+  "devDependencies": {
+    "@types/uuid": "^10.0.0",
+    "concurrently": "^8.2.0"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.91.1",
+    "@types/multer": "^2.0.0",
+    "uuid": "^13.0.0"
+  }
+}

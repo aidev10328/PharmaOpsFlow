@@ -1,0 +1,301 @@
+{
+  "name": "PharmaOpsFlow - SLA Reminders",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 9 3,4 * *"
+            }
+          ]
+        }
+      },
+      "id": "submission-reminder-trigger",
+      "name": "Submission Reminder (3rd/4th)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [240, 200]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 9 8,9 * *"
+            }
+          ]
+        }
+      },
+      "id": "processing-reminder-trigger",
+      "name": "Processing Reminder (8th/9th)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [240, 400]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.PHARMAOPSFLOW_API_URL}}/v1/sla/reminders/submission",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {}
+      },
+      "id": "send-submission-reminders",
+      "name": "Send Submission Reminders",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [480, 200],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "pharmaopsflow-api-key",
+          "name": "PharmaOpsFlow API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.PHARMAOPSFLOW_API_URL}}/v1/sla/reminders/processing",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {}
+      },
+      "id": "send-processing-reminders",
+      "name": "Send Processing Reminders",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [480, 400],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "pharmaopsflow-api-key",
+          "name": "PharmaOpsFlow API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "check-reminders-sent",
+              "leftValue": "={{ $json.remindersSent }}",
+              "rightValue": "0",
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-submission-sent",
+      "name": "Check Submission Reminders Sent",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [700, 200]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "check-reminders-sent-2",
+              "leftValue": "={{ $json.remindersSent }}",
+              "rightValue": "0",
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-processing-sent",
+      "name": "Check Processing Reminders Sent",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [700, 400]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "message",
+              "name": "message",
+              "value": "=Submission reminders sent to {{ $json.remindersSent }} pharmacy(s)",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "log-submission-reminders",
+      "name": "Log Submission Reminders",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.2,
+      "position": [920, 120],
+      "notes": "Replace with Slack/Email notification in production"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "message",
+              "name": "message",
+              "value": "=Processing reminders sent to {{ $json.remindersSent }} pharmacy(s)",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "log-processing-reminders",
+      "name": "Log Processing Reminders",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.2,
+      "position": [920, 320],
+      "notes": "Replace with Slack/Email notification in production"
+    },
+    {
+      "parameters": {},
+      "id": "no-submission-reminders",
+      "name": "No Submission Reminders Needed",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [920, 200]
+    },
+    {
+      "parameters": {},
+      "id": "no-processing-reminders",
+      "name": "No Processing Reminders Needed",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [920, 480]
+    }
+  ],
+  "connections": {
+    "Submission Reminder (3rd/4th)": {
+      "main": [
+        [
+          {
+            "node": "Send Submission Reminders",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Processing Reminder (8th/9th)": {
+      "main": [
+        [
+          {
+            "node": "Send Processing Reminders",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Submission Reminders": {
+      "main": [
+        [
+          {
+            "node": "Check Submission Reminders Sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Processing Reminders": {
+      "main": [
+        [
+          {
+            "node": "Check Processing Reminders Sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Submission Reminders Sent": {
+      "main": [
+        [
+          {
+            "node": "Log Submission Reminders",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Submission Reminders Needed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Processing Reminders Sent": {
+      "main": [
+        [
+          {
+            "node": "Log Processing Reminders",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Processing Reminders Needed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "name": "PharmaOpsFlow",
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z"
+    },
+    {
+      "name": "SLA",
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z"
+    },
+    {
+      "name": "Reminders",
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z"
+    }
+  ],
+  "triggerCount": 0,
+  "updatedAt": "2024-01-01T00:00:00.000Z",
+  "versionId": "1"
+}

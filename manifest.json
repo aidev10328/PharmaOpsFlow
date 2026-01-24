@@ -1,0 +1,16 @@
+{
+  "name": "Next.js + NestJS TypeScript",
+  "version": "1.0.0",
+  "description": "Full-stack TypeScript template with Next.js frontend, NestJS API, PostgreSQL, and JWT authentication",
+  "tokens": {
+    "PharmaOpsFlow": "{{appName}}",
+    "pharmaopsflow": "{{appSlug}}",
+    "Multi-pharmacy invoice intake and processing system with role-based access, AI-assisted invoice capture, deadline tracking (5th/10th), centralized approvals/payments, dashboards by pharmacy, and a manager chatbot for search and insights.": "{{description}}"
+  },
+  "defaults": {
+    "appName": "My App",
+    "appSlug": "my-app",
+    "description": "A full-stack application built with Next.js and NestJS"
+  },
+  "conditions": []
+}

@@ -1,0 +1,364 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// PharmaOpsFlow - Core Models
+// ============================================
+
+// System-level roles (assigned to User)
+enum Role {
+  ADMIN           // Super admin - full system access
+  COMPANY_MANAGER // Can access all pharmacies in their org
+  PHARMACY_ADMIN  // Admin of specific pharmacies (via PharmacyMember)
+  PHARMACY_USER   // User of specific pharmacies (via PharmacyMember)
+  READ_ONLY       // Read-only access
+}
+
+// Pharmacy-level roles (assigned via PharmacyMember)
+enum MemberRole {
+  PHARMACY_ADMIN
+  PHARMACY_USER
+  READ_ONLY
+}
+
+// ============================================
+// Invoice Enums
+// ============================================
+
+enum InvoiceStatus {
+  DRAFT      // Created but not submitted
+  SUBMITTED  // Submitted for approval
+  NEEDS_INFO // Returned for more information
+  APPROVED   // Approved, pending payment scheduling
+  SCHEDULED  // Payment scheduled
+  PAID       // Payment completed
+  REJECTED   // Rejected
+}
+
+enum InvoiceEventType {
+  CREATED
+  SUBMITTED
+  NEEDS_INFO
+  APPROVED
+  SCHEDULED
+  PAID
+  REJECTED
+  UPDATED
+  EXTRACTION_STARTED
+  EXTRACTION_COMPLETED
+  EXTRACTION_FAILED
+  EXTRACTION_APPLIED
+}
+
+enum ExtractionStatus {
+  NONE      // No extraction attempted
+  PENDING   // Extraction in progress
+  SUCCESS   // Extraction completed successfully
+  FAILED    // Extraction failed
+}
+
+enum AIProvider {
+  GEMINI
+  OPENAI
+  ANTHROPIC
+  OTHER
+}
+
+// ============================================
+// Organization & Pharmacy Models
+// ============================================
+
+model Org {
+  id        String     @id @default(uuid())
+  name      String
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  pharmacies Pharmacy[]
+  users      User[]
+}
+
+model Pharmacy {
+  id        String   @id @default(uuid())
+  orgId     String
+  name      String
+  code      String   @unique // e.g., "PHM001"
+  address   String?
+  timezone  String?  @default("America/New_York")
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  org      Org              @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  members  PharmacyMember[]
+  invoices Invoice[]
+  monthlyRequirements MonthlyInvoiceRequirement[]
+  slaEvents           SlaEvent[]
+  notificationLogs    NotificationLog[]
+
+  @@index([orgId])
+}
+
+model PharmacyMember {
+  id         String     @id @default(uuid())
+  userId     String
+  pharmacyId String
+  memberRole MemberRole @default(PHARMACY_USER)
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  pharmacy Pharmacy @relation(fields: [pharmacyId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, pharmacyId])
+  @@index([userId])
+  @@index([pharmacyId])
+}
+
+// ============================================
+// User Model
+// ============================================
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String
+  firstName    String?
+  lastName     String?
+  role         Role     @default(PHARMACY_USER)
+  orgId        String?  // Users belong to an org (except ADMIN)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  org                Org?              @relation(fields: [orgId], references: [id], onDelete: SetNull)
+  pharmacyMemberships PharmacyMember[]
+  invoiceEvents      InvoiceEvent[]
+  uploadedFiles      InvoiceFile[]
+  notificationLogs   NotificationLog[]
+
+  @@index([orgId])
+}
+
+// ============================================
+// Invoice Models
+// ============================================
+
+model InvoiceType {
+  id          String   @id @default(uuid())
+  name        String   @unique // e.g., "Wholesale Drug", "Equipment", "Services"
+  description String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  invoices Invoice[]
+}
+
+model Vendor {
+  id          String   @id @default(uuid())
+  name        String
+  code        String   @unique // e.g., "VND001"
+  address     String?
+  phone       String?
+  email       String?
+  paymentTerms String? // e.g., "Net 30"
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  invoices Invoice[]
+}
+
+model Invoice {
+  id            String        @id @default(uuid())
+  pharmacyId    String
+  vendorId      String?       // Nullable for extraction flow
+  invoiceTypeId String?       // Nullable for extraction flow
+
+  // Invoice details
+  invoiceNumber String?       // Nullable for extraction flow
+  invoiceDate   DateTime?     // Nullable for extraction flow
+  dueDate       DateTime?     // Nullable for extraction flow
+  amount        Decimal?      @db.Decimal(12, 2) // Nullable for extraction flow
+  currency      String        @default("USD")
+  description   String?
+  notes         String?       // Internal notes
+
+  // Status tracking
+  status        InvoiceStatus @default(DRAFT)
+  submittedAt   DateTime?
+  approvedAt    DateTime?
+  approvedById  String?       // User who approved
+  paidAt        DateTime?
+
+  // Deadline tracking (5th/10th of month)
+  deadlineDate  DateTime?     // Computed or set deadline
+
+  // AI Extraction tracking
+  needsReview        Boolean          @default(false)
+  extractionStatus   ExtractionStatus @default(NONE)
+  extractedAt        DateTime?
+  lastExtractionId   String?          // FK to InvoiceExtraction
+
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  pharmacy    Pharmacy            @relation(fields: [pharmacyId], references: [id], onDelete: Cascade)
+  vendor      Vendor?             @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+  invoiceType InvoiceType?        @relation(fields: [invoiceTypeId], references: [id], onDelete: Restrict)
+  files       InvoiceFile[]
+  events      InvoiceEvent[]
+  slaEvents   SlaEvent[]
+  extractions InvoiceExtraction[]
+
+  @@index([pharmacyId])
+  @@index([vendorId])
+  @@index([status])
+  @@index([dueDate])
+  @@index([pharmacyId, status])
+  @@index([pharmacyId, needsReview, status])
+}
+
+model InvoiceFile {
+  id              String   @id @default(uuid())
+  invoiceId       String
+  originalName    String   // Original file name
+  mimeType        String   // MIME type (e.g., application/pdf, image/png)
+  sizeBytes       Int      // Size in bytes
+  storagePath     String   // Path in storage provider
+  uploadedByUserId String  // User who uploaded
+  createdAt       DateTime @default(now())
+
+  invoice     Invoice             @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  uploadedBy  User                @relation(fields: [uploadedByUserId], references: [id], onDelete: Restrict)
+  extractions InvoiceExtraction[]
+
+  @@index([invoiceId])
+}
+
+// ============================================
+// AI Extraction Models
+// ============================================
+
+model InvoiceExtraction {
+  id             String           @id @default(uuid())
+  invoiceId      String
+  invoiceFileId  String
+  provider       AIProvider
+  model          String?          // e.g., "gemini-1.5-flash"
+
+  // Extraction results
+  extractedJson  Json             // Normalized extracted fields
+  confidenceJson Json             // Per-field confidence scores (0-1)
+  rawText        String?          @db.Text // Raw OCR/extracted text
+
+  // Status tracking
+  status         ExtractionStatus @default(PENDING)
+  error          String?          @db.Text
+  processingMs   Int?             // Processing time in milliseconds
+
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  invoice     Invoice     @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  invoiceFile InvoiceFile @relation(fields: [invoiceFileId], references: [id], onDelete: Cascade)
+
+  @@index([invoiceId])
+  @@index([invoiceId, createdAt])
+  @@index([status])
+}
+
+model InvoiceEvent {
+  id          String           @id @default(uuid())
+  invoiceId   String
+  eventType   InvoiceEventType
+  userId      String           // User who triggered the event
+  notes       String?          // Optional notes/comments
+  metadata    Json?            // Additional event data
+  createdAt   DateTime         @default(now())
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([invoiceId])
+  @@index([invoiceId, createdAt])
+}
+
+// ============================================
+// SLA & Compliance Models
+// ============================================
+
+enum SlaEventType {
+  SUBMISSION_MISSED        // Invoice not submitted by 5th
+  PROCESSING_MISSED        // Invoice not processed by 10th
+  SUBMISSION_REMINDER_SENT // Reminder sent before submission deadline
+  PROCESSING_REMINDER_SENT // Reminder sent before processing deadline
+}
+
+// Monthly invoice submission requirements per pharmacy
+model MonthlyInvoiceRequirement {
+  id            String   @id @default(uuid())
+  pharmacyId    String
+  yearMonth     String   // Format: "YYYY-MM"
+  expectedCount Int      @default(1)  // How many invoices expected
+  submittedCount Int     @default(0)  // How many submitted
+  processedCount Int     @default(0)  // How many processed (approved/paid)
+  isMet         Boolean  @default(false) // Overall SLA met
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  pharmacy Pharmacy @relation(fields: [pharmacyId], references: [id], onDelete: Cascade)
+
+  @@unique([pharmacyId, yearMonth])
+  @@index([pharmacyId])
+  @@index([yearMonth])
+}
+
+// SLA events log (violations, reminders)
+model SlaEvent {
+  id            String       @id @default(uuid())
+  pharmacyId    String
+  yearMonth     String       // Format: "YYYY-MM"
+  eventType     SlaEventType
+  invoiceId     String?      // Optional reference to specific invoice
+  notes         String?
+  metadata      Json?        // Additional data (counts, details)
+  createdAt     DateTime     @default(now())
+
+  pharmacy Pharmacy @relation(fields: [pharmacyId], references: [id], onDelete: Cascade)
+  invoice  Invoice? @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+
+  @@index([pharmacyId])
+  @@index([pharmacyId, yearMonth])
+  @@index([yearMonth, eventType])
+}
+
+// Notification log for tracking sent reminders/alerts
+model NotificationLog {
+  id            String   @id @default(uuid())
+  pharmacyId    String?
+  userId        String?
+  type          String   // "sla_reminder", "sla_violation", etc.
+  channel       String   // "email", "webhook", "in_app"
+  subject       String?
+  body          String?
+  metadata      Json?    // Additional context
+  sentAt        DateTime @default(now())
+  deliveredAt   DateTime?
+  failedAt      DateTime?
+  errorMessage  String?
+
+  pharmacy Pharmacy? @relation(fields: [pharmacyId], references: [id], onDelete: SetNull)
+  user     User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([pharmacyId])
+  @@index([userId])
+  @@index([type, sentAt])
+}
