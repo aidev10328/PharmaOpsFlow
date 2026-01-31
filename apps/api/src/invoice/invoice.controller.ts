@@ -291,8 +291,8 @@ export class InvoiceController {
   private async validateManagerAccess(req: any, invoiceId: string) {
     if (req.user.role === Role.ADMIN) return;
 
-    const invoice = await this.invoiceService.findOne(invoiceId);
-    if (req.user.orgId !== invoice.pharmacy.orgId) {
+    const invoice = await this.invoiceService.findOne(invoiceId) as any;
+    if (req.user.orgId !== invoice.pharmacy?.orgId) {
       throw new ForbiddenException('You do not have access to this invoice');
     }
   }

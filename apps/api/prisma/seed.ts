@@ -11,15 +11,43 @@ async function main() {
   const adminPassword = await bcrypt.hash('admin123', 10);
 
   // ============================================
+  // 0. Clean up existing data
+  // ============================================
+  console.log('Cleaning up existing data...');
+  await prisma.auditLog.deleteMany({});
+  await prisma.invoiceExtraction.deleteMany({});
+  await prisma.invoiceEvent.deleteMany({});
+  await prisma.invoiceFile.deleteMany({});
+  await prisma.slaEvent.deleteMany({});
+  await prisma.notificationLog.deleteMany({});
+  await prisma.monthlyInvoiceRequirement.deleteMany({});
+  await prisma.requiredInvoiceType.deleteMany({});
+  await prisma.invoice.deleteMany({});
+  await prisma.invoiceType.deleteMany({});
+  await prisma.vendor.deleteMany({});
+  await prisma.pharmacyMember.deleteMany({});
+  await prisma.pharmacy.deleteMany({});
+  // Delete old pharmacy users (keep admin and manager)
+  await prisma.user.deleteMany({
+    where: {
+      role: { in: ['PHARMACY_USER', 'PHARMACY_ADMIN'] },
+    },
+  });
+  console.log('  Cleaned up existing data.');
+
+  // ============================================
   // 1. Create Organization
   // ============================================
-  console.log('Creating organization...');
+  console.log('\nCreating organization...');
   const org = await prisma.org.upsert({
     where: { id: '00000000-0000-0000-0000-000000000001' },
     update: { name: 'Main Company' },
     create: {
       id: '00000000-0000-0000-0000-000000000001',
       name: 'Main Company',
+      timezone: 'America/New_York',
+      submissionDueDay: 5,
+      processingDueDay: 10,
     },
   });
   console.log(`  Created org: ${org.name}`);
@@ -29,28 +57,33 @@ async function main() {
   // ============================================
   console.log('\nCreating pharmacies...');
   const pharmacyData = [
-    { code: 'P01', name: 'Downtown Pharmacy', address: '123 Main St, New York, NY 10001', timezone: 'America/New_York' },
-    { code: 'P02', name: 'Uptown Pharmacy', address: '456 Park Ave, New York, NY 10022', timezone: 'America/New_York' },
-    { code: 'P03', name: 'Brooklyn Pharmacy', address: '789 Atlantic Ave, Brooklyn, NY 11217', timezone: 'America/New_York' },
-    { code: 'P04', name: 'Queens Pharmacy', address: '321 Queens Blvd, Queens, NY 11375', timezone: 'America/New_York' },
-    { code: 'P05', name: 'Bronx Pharmacy', address: '654 Grand Concourse, Bronx, NY 10451', timezone: 'America/New_York' },
-    { code: 'P06', name: 'Staten Island Pharmacy', address: '987 Victory Blvd, Staten Island, NY 10314', timezone: 'America/New_York' },
-    { code: 'P07', name: 'Westside Pharmacy', address: '147 West End Ave, New York, NY 10023', timezone: 'America/New_York' },
-    { code: 'P08', name: 'Eastside Pharmacy', address: '258 East 86th St, New York, NY 10028', timezone: 'America/New_York' },
-    { code: 'P09', name: 'Midtown Pharmacy', address: '369 Lexington Ave, New York, NY 10017', timezone: 'America/New_York' },
-    { code: 'P10', name: 'Village Pharmacy', address: '741 Bleecker St, New York, NY 10014', timezone: 'America/New_York' },
+    { code: 'ELM', name: 'Elmhurst Pharmacy', street: '75-23 Broadway', city: 'Elmhurst', state: 'NY', zip: '11373', phone: '(718) 424-5500', website: 'https://www.elmhurstpharmacy.com', timezone: 'America/New_York' },
+    { code: 'TCP', name: 'Thriftcare Pharmacy', street: '759 Washington Ave', city: 'Brooklyn', state: 'NY', zip: '11238', phone: '(718) 783-1010', website: 'https://www.thriftcarepharmacy.com', timezone: 'America/New_York' },
+    { code: 'HDP', name: 'Heidi Pharmacy', street: '522 West 181st Street', city: 'New York', state: 'NY', zip: '10033', phone: '(212) 927-2800', website: 'https://www.heidipharmacy.com', timezone: 'America/New_York' },
+    { code: 'CWP', name: 'Care Well Pharmacy', street: '826 East Tremont Ave', city: 'Bronx', state: 'NY', zip: '10460', phone: '(718) 842-1600', website: 'https://www.carewellpharmacy.com', timezone: 'America/New_York' },
+    { code: 'BTD', name: 'Batish Drugs', street: '378 Lafayette Avenue', city: 'Brooklyn', state: 'NY', zip: '11238', phone: '(718) 636-0202', website: 'https://www.batishdrugs.com', timezone: 'America/New_York' },
+    { code: 'TCR', name: 'Thrift Care Pharmacy', street: '524 Nostrand Avenue', city: 'Brooklyn', state: 'NY', zip: '11216', phone: '(718) 622-3050', website: 'https://www.thriftcarerx.com', timezone: 'America/New_York' },
+    { code: 'BBP', name: 'Branch Brook Pharmacy', street: '917 Franklin Avenue', city: 'Newark', state: 'NJ', zip: '07102', phone: '(973) 481-8800', website: 'https://www.branchbrookpharmacy.com', timezone: 'America/New_York' },
+    { code: 'MSN', name: 'Mason Pharmacy', street: '1255 Castle Hill Avenue', city: 'Bronx', state: 'NY', zip: '10462', phone: '(718) 828-7400', website: 'https://www.masonpharmacy.com', timezone: 'America/New_York' },
+    { code: 'VIM', name: 'VIM Drugs', street: '3835 Broadway', city: 'New York', state: 'NY', zip: '10032', phone: '(212) 781-9500', website: 'https://www.vimdrugs.com', timezone: 'America/New_York' },
+    { code: 'HLP', name: 'Hill Pharmacy', street: '2197 Westchester Avenue', city: 'Bronx', state: 'NY', zip: '10462', phone: '(718) 792-3100', website: 'https://www.hillpharmacy.com', timezone: 'America/New_York' },
   ];
 
   const pharmacies: any[] = [];
   for (const data of pharmacyData) {
     const pharmacy = await prisma.pharmacy.upsert({
       where: { code: data.code },
-      update: { name: data.name, address: data.address, timezone: data.timezone },
+      update: { name: data.name, street: data.street, city: data.city, state: data.state, zip: data.zip, phone: data.phone, website: data.website, timezone: data.timezone },
       create: {
         orgId: org.id,
         code: data.code,
         name: data.name,
-        address: data.address,
+        street: data.street,
+        city: data.city,
+        state: data.state,
+        zip: data.zip,
+        phone: data.phone,
+        website: data.website,
         timezone: data.timezone,
       },
     });
@@ -72,8 +105,9 @@ async function main() {
       passwordHash: adminPassword,
       firstName: 'System',
       lastName: 'Admin',
+      phone: '(212) 555-0001',
       role: 'ADMIN',
-      orgId: null, // Admin doesn't belong to a specific org
+      orgId: null,
     },
   });
   console.log(`  Created ADMIN: ${admin.email}`);
@@ -87,130 +121,131 @@ async function main() {
       passwordHash: password,
       firstName: 'Sarah',
       lastName: 'Johnson',
+      phone: '(212) 555-0002',
       role: 'COMPANY_MANAGER',
       orgId: org.id,
     },
   });
   console.log(`  Created COMPANY_MANAGER: ${companyManager.email}`);
 
-  // 3c. Pharmacy User (for Pharmacy 1 - Downtown)
-  const pharmacy1User = await prisma.user.upsert({
-    where: { email: 'pharmacy1@local' },
-    update: {},
-    create: {
-      email: 'pharmacy1@local',
-      passwordHash: password,
-      firstName: 'Emily',
-      lastName: 'Davis',
-      role: 'PHARMACY_USER',
-      orgId: org.id,
-    },
-  });
-  console.log(`  Created PHARMACY_USER: ${pharmacy1User.email}`);
+  // 3c. Pharmacy Users - one per pharmacy
+  const pharmacyUserData = [
+    { email: 'info@elmrx.com', firstName: 'Elmhurst', lastName: 'Pharmacy', phone: '(718) 424-5501' },
+    { email: 'info@thriftcarepharmacy.com', firstName: 'Thriftcare', lastName: 'Pharmacy', phone: '(718) 783-1011' },
+    { email: 'info@heidirx.com', firstName: 'Heidi', lastName: 'Pharmacy', phone: '(212) 927-2801' },
+    { email: 'info@carewellphcy.com', firstName: 'CareWell', lastName: 'Pharmacy', phone: '(718) 842-1601' },
+    { email: 'info@batishdrugs.com', firstName: 'Batish', lastName: 'Drugs', phone: '(718) 636-0203' },
+    { email: 'info@thriftcarerx.com', firstName: 'ThriftCare', lastName: 'Pharmacy', phone: '(718) 622-3051' },
+    { email: 'info@branchbrookpharmacy.com', firstName: 'BranchBrook', lastName: 'Pharmacy', phone: '(973) 481-8801' },
+    { email: 'info@masonrx.com', firstName: 'Mason', lastName: 'Pharmacy', phone: '(718) 828-7401' },
+    { email: 'info@vimdrugs.com', firstName: 'VIM', lastName: 'Drugs', phone: '(212) 781-9501' },
+    { email: 'info@hillphcy.com', firstName: 'Hill', lastName: 'Pharmacy', phone: '(718) 792-3101' },
+  ];
 
-  // 3d. Pharmacy Admin (for Pharmacy 2 - Uptown)
-  const pharmacy2Admin = await prisma.user.upsert({
-    where: { email: 'pharmacy2@local' },
-    update: {},
-    create: {
-      email: 'pharmacy2@local',
-      passwordHash: password,
-      firstName: 'Michael',
-      lastName: 'Chen',
-      role: 'PHARMACY_ADMIN',
-      orgId: org.id,
-    },
-  });
-  console.log(`  Created PHARMACY_ADMIN: ${pharmacy2Admin.email}`);
+  const pharmacyUsers: any[] = [];
+  for (const data of pharmacyUserData) {
+    const user = await prisma.user.upsert({
+      where: { email: data.email },
+      update: { firstName: data.firstName, lastName: data.lastName, phone: data.phone },
+      create: {
+        email: data.email,
+        passwordHash: password,
+        firstName: data.firstName,
+        lastName: data.lastName,
+        phone: data.phone,
+        role: 'PHARMACY_USER',
+        orgId: org.id,
+      },
+    });
+    pharmacyUsers.push(user);
+    console.log(`  Created PHARMACY_USER: ${user.email}`);
+  }
 
   // ============================================
   // 4. Create Pharmacy Memberships
   // ============================================
   console.log('\nCreating pharmacy memberships...');
 
-  // pharmacy1@local -> Pharmacy 1 (P01 - Downtown) as PHARMACY_USER
-  await prisma.pharmacyMember.upsert({
-    where: {
-      userId_pharmacyId: {
-        userId: pharmacy1User.id,
-        pharmacyId: pharmacies[0].id,
+  for (let i = 0; i < pharmacies.length; i++) {
+    await prisma.pharmacyMember.upsert({
+      where: {
+        userId_pharmacyId: {
+          userId: pharmacyUsers[i].id,
+          pharmacyId: pharmacies[i].id,
+        },
       },
-    },
-    update: { memberRole: 'PHARMACY_USER' },
-    create: {
-      userId: pharmacy1User.id,
-      pharmacyId: pharmacies[0].id,
-      memberRole: 'PHARMACY_USER',
-    },
-  });
-  console.log(`  Added ${pharmacy1User.email} as PHARMACY_USER to ${pharmacies[0].name}`);
-
-  // pharmacy2@local -> Pharmacy 2 (P02 - Uptown) as PHARMACY_ADMIN
-  await prisma.pharmacyMember.upsert({
-    where: {
-      userId_pharmacyId: {
-        userId: pharmacy2Admin.id,
-        pharmacyId: pharmacies[1].id,
+      update: { memberRole: 'PHARMACY_USER' },
+      create: {
+        userId: pharmacyUsers[i].id,
+        pharmacyId: pharmacies[i].id,
+        memberRole: 'PHARMACY_USER',
       },
-    },
-    update: { memberRole: 'PHARMACY_ADMIN' },
-    create: {
-      userId: pharmacy2Admin.id,
-      pharmacyId: pharmacies[1].id,
-      memberRole: 'PHARMACY_ADMIN',
-    },
-  });
-  console.log(`  Added ${pharmacy2Admin.email} as PHARMACY_ADMIN to ${pharmacies[1].name}`);
+    });
+    console.log(`  Added ${pharmacyUsers[i].email} as PHARMACY_USER to ${pharmacies[i].name}`);
+  }
 
   // ============================================
-  // 5. Create Invoice Types
+  // 5. Create Invoice Types (org-scoped with codes)
   // ============================================
   console.log('\nCreating invoice types...');
   const invoiceTypesData = [
-    { name: 'Wholesale Drug', description: 'Drug purchases from wholesalers' },
-    { name: 'Equipment', description: 'Pharmacy equipment and supplies' },
-    { name: 'Services', description: 'Professional services and consulting' },
-    { name: 'Utilities', description: 'Utility bills and services' },
-    { name: 'Rent', description: 'Rent and lease payments' },
-    { name: 'Insurance', description: 'Insurance premiums' },
-    { name: 'Maintenance', description: 'Maintenance and repairs' },
-    { name: 'Other', description: 'Miscellaneous expenses' },
+    { code: 'RENT', name: 'Rent', description: 'Rent and lease payments', isRequired: true },
+    { code: 'ELECTRICITY', name: 'Electricity', description: 'Electricity utility bills', isRequired: true },
+    { code: 'VENDOR_INVOICE', name: 'Vendor Invoice', description: 'Drug purchases from wholesalers', isRequired: false },
+    { code: 'INTERNET', name: 'Internet', description: 'Internet and telecom services', isRequired: false },
+    { code: 'INSURANCE', name: 'Insurance', description: 'Insurance premiums', isRequired: false },
   ];
 
+  const invoiceTypes: any[] = [];
   for (const data of invoiceTypesData) {
-    await prisma.invoiceType.upsert({
-      where: { name: data.name },
-      update: { description: data.description },
-      create: data,
+    const it = await prisma.invoiceType.create({
+      data: {
+        orgId: org.id,
+        code: data.code,
+        name: data.name,
+        description: data.description,
+        isRequired: data.isRequired,
+      },
     });
-    console.log(`  Created invoice type: ${data.name}`);
+    invoiceTypes.push(it);
+    console.log(`  Created invoice type: ${it.name} (${it.code})${it.isRequired ? ' [REQUIRED]' : ''}`);
   }
 
   // ============================================
-  // 6. Create Vendors
+  // 6. Create Vendors (org-wide + 1 pharmacy-specific)
   // ============================================
   console.log('\nCreating vendors...');
-  const vendorsData = [
-    { code: 'VND001', name: 'McKesson Corporation', paymentTerms: 'Net 30', email: 'ar@mckesson.com', phone: '1-800-555-0101' },
-    { code: 'VND002', name: 'Cardinal Health', paymentTerms: 'Net 30', email: 'payments@cardinalhealth.com', phone: '1-800-555-0102' },
-    { code: 'VND003', name: 'AmerisourceBergen', paymentTerms: 'Net 30', email: 'billing@amerisource.com', phone: '1-800-555-0103' },
-    { code: 'VND004', name: 'Morris & Dickson', paymentTerms: 'Net 15', email: 'ar@morrisdickson.com', phone: '1-800-555-0104' },
-    { code: 'VND005', name: 'HD Smith', paymentTerms: 'Net 30', email: 'accounts@hdsmith.com', phone: '1-800-555-0105' },
-    { code: 'VND006', name: 'Kinray Medical', paymentTerms: 'Net 45', email: 'billing@kinray.com', phone: '1-800-555-0106' },
-    { code: 'VND007', name: 'Valley Wholesale Drug', paymentTerms: 'Net 30', email: 'ap@valleywholesale.com', phone: '1-800-555-0107' },
-    { code: 'VND008', name: 'Rochester Drug Co-op', paymentTerms: 'Net 30', email: 'ar@rdcoop.com', phone: '1-800-555-0108' },
-    { code: 'VND009', name: 'National Grid Electric', paymentTerms: 'Net 21', email: 'business@nationalgrid.com', phone: '1-800-555-0109' },
-    { code: 'VND010', name: 'ABC Property Management', paymentTerms: 'Net 1', email: 'rent@abcproperty.com', phone: '1-800-555-0110' },
+  const orgWideVendors = [
+    { name: 'McKesson Corporation', paymentTerms: 'Net 30', email: 'ar@mckesson.com', phone: '1-800-555-0101' },
+    { name: 'Cardinal Health', paymentTerms: 'Net 30', email: 'payments@cardinalhealth.com', phone: '1-800-555-0102' },
+    { name: 'National Grid Electric', paymentTerms: 'Net 21', email: 'business@nationalgrid.com', phone: '1-800-555-0109' },
   ];
 
-  for (const data of vendorsData) {
-    await prisma.vendor.upsert({
-      where: { code: data.code },
-      update: { name: data.name, paymentTerms: data.paymentTerms, email: data.email, phone: data.phone },
-      create: data,
+  for (const data of orgWideVendors) {
+    await prisma.vendor.create({
+      data: {
+        orgId: org.id,
+        name: data.name,
+        paymentTerms: data.paymentTerms,
+        email: data.email,
+        phone: data.phone,
+      },
     });
-    console.log(`  Created vendor: ${data.name} (${data.code})`);
+    console.log(`  Created org-wide vendor: ${data.name}`);
   }
+
+  // 1 pharmacy-specific vendor for the first pharmacy (ELM)
+  await prisma.vendor.create({
+    data: {
+      orgId: org.id,
+      pharmacyId: pharmacies[0].id,
+      name: 'Elmhurst Local Supply Co.',
+      paymentTerms: 'Net 15',
+      email: 'orders@elmhurstlocal.com',
+      phone: '(718) 424-9900',
+    },
+  });
+  console.log(`  Created pharmacy-specific vendor: Elmhurst Local Supply Co. (for ${pharmacies[0].code})`);
 
   // ============================================
   // 7. Create Monthly Invoice Requirements (SLA)
@@ -277,13 +312,10 @@ async function main() {
   console.log('  Email: manager@local');
   console.log('  Password: password123');
   console.log('');
-  console.log('PHARMACY_USER (P01 - Downtown):');
-  console.log('  Email: pharmacy1@local');
-  console.log('  Password: password123');
-  console.log('');
-  console.log('PHARMACY_ADMIN (P02 - Uptown):');
-  console.log('  Email: pharmacy2@local');
-  console.log('  Password: password123');
+  console.log('PHARMACY USERS (one per pharmacy, password: password123):');
+  for (let i = 0; i < pharmacyUserData.length; i++) {
+    console.log(`  ${pharmacyData[i].name} (${pharmacyData[i].code}): ${pharmacyUserData[i].email}`);
+  }
   console.log('========================================\n');
 }
 

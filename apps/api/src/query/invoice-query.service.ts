@@ -41,7 +41,7 @@ export class InvoiceQueryService {
         where,
         include: {
           pharmacy: { select: { id: true, name: true, code: true } },
-          vendor: { select: { id: true, name: true, code: true } },
+          vendor: { select: { id: true, name: true } },
           invoiceType: { select: { id: true, name: true } },
         },
         orderBy,
@@ -174,7 +174,7 @@ export class InvoiceQueryService {
       where: { id: invoiceId },
       include: {
         pharmacy: { select: { id: true, name: true, code: true, orgId: true } },
-        vendor: { select: { id: true, name: true, code: true } },
+        vendor: { select: { id: true, name: true } },
         invoiceType: { select: { id: true, name: true } },
         files: {
           include: {
@@ -239,7 +239,7 @@ export class InvoiceQueryService {
   async getVendors() {
     return this.prisma.vendor.findMany({
       where: { isActive: true },
-      select: { id: true, name: true, code: true },
+      select: { id: true, name: true },
       orderBy: { name: 'asc' },
     });
   }

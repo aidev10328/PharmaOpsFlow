@@ -74,7 +74,7 @@ export class InvoiceService {
       },
       include: {
         pharmacy: { select: { id: true, name: true, code: true } },
-        vendor: { select: { id: true, name: true, code: true } },
+        vendor: { select: { id: true, name: true } },
         invoiceType: { select: { id: true, name: true } },
       },
     });
@@ -150,7 +150,7 @@ export class InvoiceService {
         where,
         include: {
           pharmacy: { select: { id: true, name: true, code: true } },
-          vendor: { select: { id: true, name: true, code: true } },
+          vendor: { select: { id: true, name: true } },
           invoiceType: { select: { id: true, name: true } },
         },
         orderBy: [{ dueDate: 'asc' }, { createdAt: 'desc' }],
@@ -179,7 +179,7 @@ export class InvoiceService {
       where: { id: invoiceId },
       include: {
         pharmacy: { select: { id: true, name: true, code: true, orgId: true } },
-        vendor: { select: { id: true, name: true, code: true } },
+        vendor: { select: { id: true, name: true } },
         invoiceType: { select: { id: true, name: true } },
         files: true,
         events: {
@@ -244,7 +244,7 @@ export class InvoiceService {
       },
       include: {
         pharmacy: { select: { id: true, name: true, code: true } },
-        vendor: { select: { id: true, name: true, code: true } },
+        vendor: { select: { id: true, name: true } },
         invoiceType: { select: { id: true, name: true } },
       },
     });
@@ -382,7 +382,7 @@ export class InvoiceService {
       },
       include: {
         pharmacy: { select: { id: true, name: true, code: true } },
-        vendor: { select: { id: true, name: true, code: true } },
+        vendor: { select: { id: true, name: true } },
         invoiceType: { select: { id: true, name: true } },
       },
     });
@@ -462,7 +462,7 @@ export class InvoiceService {
       },
       include: {
         pharmacy: { select: { id: true, name: true, code: true } },
-        vendor: { select: { id: true, name: true, code: true } },
+        vendor: { select: { id: true, name: true } },
         invoiceType: { select: { id: true, name: true } },
       },
       orderBy: [{ dueDate: 'asc' }, { submittedAt: 'asc' }],

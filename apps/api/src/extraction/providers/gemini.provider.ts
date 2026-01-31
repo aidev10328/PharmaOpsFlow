@@ -84,7 +84,7 @@ export class GeminiProvider implements AIExtractorProvider {
       let prompt = EXTRACTION_PROMPT;
 
       if (context.knownVendors && context.knownVendors.length > 0) {
-        const vendorList = context.knownVendors.map((v) => `- ${v.name} (${v.code})`).join('\n');
+        const vendorList = context.knownVendors.map((v) => `- ${v.name}`).join('\n');
         prompt = prompt.replace('{{KNOWN_VENDORS}}', vendorList);
       } else {
         prompt = prompt.replace('{{KNOWN_VENDORS}}', '(none provided)');

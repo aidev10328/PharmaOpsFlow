@@ -18,19 +18,57 @@ import {
   mapInvoiceType,
 } from './types';
 import { AIExtractorProvider, AI_EXTRACTOR_PROVIDER } from './providers';
+import {
+  IsOptional,
+  IsUUID,
+  IsString,
+  IsDateString,
+  IsNumber,
+  MaxLength,
+  Min,
+} from 'class-validator';
 
 export interface ExtractInvoiceDto {
   invoiceId: string;
   fileId?: string; // Optional: specific file to extract from
 }
 
-export interface ApplyExtractionDto {
+export interface UploadAndParseDto {
+  pharmacyId: string;
+  file: Express.Multer.File;
+  userId: string;
+}
+
+export class ApplyExtractionDto {
+  @IsOptional()
+  @IsUUID()
   vendorId?: string;
+
+  @IsOptional()
+  @IsUUID()
   invoiceTypeId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
   invoiceNumber?: string;
+
+  @IsOptional()
+  @IsDateString()
   invoiceDate?: string;
+
+  @IsOptional()
+  @IsDateString()
   dueDate?: string;
+
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0.01)
   amount?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(10)
   currency?: string;
 }
 
@@ -136,7 +174,7 @@ export class ExtractionService {
       const [vendors, invoiceTypes] = await Promise.all([
         this.prisma.vendor.findMany({
           where: { isActive: true },
-          select: { id: true, name: true, code: true },
+          select: { id: true, name: true },
         }),
         this.prisma.invoiceType.findMany({
           where: { isActive: true },
@@ -260,6 +298,251 @@ export class ExtractionService {
   }
 
   /**
+   * Upload a file and parse it to create an invoice with extracted data
+   * This is the main entry point for the "Upload Invoice" feature
+   */
+  async uploadAndParseInvoice(dto: UploadAndParseDto): Promise<{
+    invoice: any;
+    extraction: any;
+    extractedData: any;
+    confidence: any;
+    matchedVendorId?: string;
+    matchedInvoiceTypeId?: string;
+    vendors: any[];
+    invoiceTypes: any[];
+  }> {
+    const { pharmacyId, file, userId } = dto;
+
+    // Check if AI provider is configured
+    if (!this.aiProvider.isConfigured()) {
+      throw new BadRequestException(
+        `AI provider (${this.aiProvider.name}) is not configured. Please set the required environment variables.`,
+      );
+    }
+
+    // Get pharmacy info
+    const pharmacy = await this.prisma.pharmacy.findUnique({
+      where: { id: pharmacyId },
+      select: { id: true, orgId: true, name: true },
+    });
+
+    if (!pharmacy) {
+      throw new NotFoundException('Pharmacy not found');
+    }
+
+    // Create a draft invoice
+    const invoice = await this.prisma.invoice.create({
+      data: {
+        pharmacyId,
+        status: 'DRAFT',
+        extractionStatus: ExtractionStatus.PENDING,
+      },
+    });
+
+    this.logger.log(`Created draft invoice ${invoice.id} for upload-and-parse`);
+
+    // Upload the file to storage
+    const storagePath = `invoices/${invoice.id}/${Date.now()}-${file.originalname}`;
+    await this.storageProvider.uploadFile({
+      file: file.buffer,
+      originalName: file.originalname,
+      mimeType: file.mimetype,
+      storagePath,
+    });
+
+    // Create file record
+    const invoiceFile = await this.prisma.invoiceFile.create({
+      data: {
+        invoiceId: invoice.id,
+        originalName: file.originalname,
+        mimeType: file.mimetype,
+        sizeBytes: file.size,
+        storagePath,
+        uploadedByUserId: userId,
+      },
+    });
+
+    // Log event
+    await this.prisma.invoiceEvent.create({
+      data: {
+        invoiceId: invoice.id,
+        eventType: InvoiceEventType.CREATED,
+        userId,
+        notes: 'Invoice created via upload-and-parse',
+        metadata: { fileName: file.originalname },
+      },
+    });
+
+    // Get model name
+    const modelName = this.getModelName();
+
+    // Create extraction record
+    const extraction = await this.prisma.invoiceExtraction.create({
+      data: {
+        invoiceId: invoice.id,
+        invoiceFileId: invoiceFile.id,
+        provider: this.aiProvider.providerType as AIProvider,
+        model: modelName,
+        status: ExtractionStatus.PENDING,
+        extractedJson: {},
+        confidenceJson: {},
+      },
+    });
+
+    try {
+      // Get signed download URL for the file
+      const downloadUrl = await this.storageProvider.getSignedDownloadUrl(
+        storagePath,
+        3600,
+      );
+
+      // Get known vendors and invoice types for context
+      const [vendors, invoiceTypes] = await Promise.all([
+        this.prisma.vendor.findMany({
+          where: { isActive: true },
+          select: { id: true, name: true },
+        }),
+        this.prisma.invoiceType.findMany({
+          where: { isActive: true },
+          select: { id: true, name: true },
+        }),
+      ]);
+
+      // Build extraction context
+      const context: ExtractionContext = {
+        downloadUrl,
+        mimeType: file.mimetype,
+        fileName: file.originalname,
+        orgContext: {
+          orgId: pharmacy.orgId,
+          orgName: pharmacy.name,
+        },
+        knownVendors: vendors,
+        knownInvoiceTypes: invoiceTypes,
+      };
+
+      // Call AI provider
+      const result = await this.aiProvider.extractInvoiceFromFile(context);
+
+      // Match vendor and invoice type
+      const vendorMatch = fuzzyMatchVendor(result.extracted.vendorName, vendors);
+      const typeMatch = mapInvoiceType(result.extracted.invoiceType, invoiceTypes);
+
+      // Update extraction record with results
+      await this.prisma.invoiceExtraction.update({
+        where: { id: extraction.id },
+        data: {
+          extractedJson: result.extracted as any,
+          confidenceJson: result.confidence as any,
+          rawText: result.rawText,
+          status: ExtractionStatus.SUCCESS,
+          processingMs: result.processingMs,
+        },
+      });
+
+      // Update invoice with extraction status
+      const updatedInvoice = await this.prisma.invoice.update({
+        where: { id: invoice.id },
+        data: {
+          extractionStatus: ExtractionStatus.SUCCESS,
+          extractedAt: new Date(),
+          lastExtractionId: extraction.id,
+        },
+        include: {
+          pharmacy: { select: { id: true, name: true, code: true } },
+          files: true,
+        },
+      });
+
+      // Log extraction completed
+      await this.prisma.invoiceEvent.create({
+        data: {
+          invoiceId: invoice.id,
+          eventType: InvoiceEventType.EXTRACTION_COMPLETED,
+          userId,
+          notes: 'AI extraction completed',
+          metadata: {
+            extractionId: extraction.id,
+            processingMs: result.processingMs,
+          },
+        },
+      });
+
+      this.logger.log(`Upload-and-parse completed for invoice ${invoice.id}`);
+
+      return {
+        invoice: updatedInvoice,
+        extraction,
+        extractedData: result.extracted,
+        confidence: result.confidence,
+        matchedVendorId: vendorMatch?.vendorId,
+        matchedInvoiceTypeId: typeMatch?.invoiceTypeId,
+        vendors,
+        invoiceTypes,
+      };
+    } catch (error) {
+      this.logger.error(`Upload-and-parse extraction failed: ${error.message}`);
+
+      // Update extraction and invoice status
+      await this.prisma.invoiceExtraction.update({
+        where: { id: extraction.id },
+        data: {
+          status: ExtractionStatus.FAILED,
+          error: error.message,
+        },
+      });
+
+      await this.prisma.invoice.update({
+        where: { id: invoice.id },
+        data: {
+          extractionStatus: ExtractionStatus.FAILED,
+          lastExtractionId: extraction.id,
+        },
+      });
+
+      // Log failure
+      await this.prisma.invoiceEvent.create({
+        data: {
+          invoiceId: invoice.id,
+          eventType: InvoiceEventType.EXTRACTION_FAILED,
+          userId,
+          notes: `AI extraction failed: ${error.message}`,
+          metadata: { error: error.message },
+        },
+      });
+
+      // Still return the invoice so user can manually fill data
+      const failedInvoice = await this.prisma.invoice.findUnique({
+        where: { id: invoice.id },
+        include: {
+          pharmacy: { select: { id: true, name: true, code: true } },
+          files: true,
+        },
+      });
+
+      const [vendors, invoiceTypes] = await Promise.all([
+        this.prisma.vendor.findMany({
+          where: { isActive: true },
+          select: { id: true, name: true },
+        }),
+        this.prisma.invoiceType.findMany({
+          where: { isActive: true },
+          select: { id: true, name: true },
+        }),
+      ]);
+
+      return {
+        invoice: failedInvoice,
+        extraction: null,
+        extractedData: null,
+        confidence: null,
+        vendors,
+        invoiceTypes,
+      };
+    }
+  }
+
+  /**
    * Get extraction history for an invoice
    */
   async getExtractionHistory(invoiceId: string) {
@@ -357,7 +640,7 @@ export class ExtractionService {
       data: updateData,
       include: {
         pharmacy: { select: { id: true, name: true, code: true } },
-        vendor: { select: { id: true, name: true, code: true } },
+        vendor: { select: { id: true, name: true } },
         invoiceType: { select: { id: true, name: true } },
       },
     });
@@ -426,7 +709,7 @@ export class ExtractionService {
       where,
       include: {
         pharmacy: { select: { id: true, name: true, code: true } },
-        vendor: { select: { id: true, name: true, code: true } },
+        vendor: { select: { id: true, name: true } },
         invoiceType: { select: { id: true, name: true } },
         extractions: {
           orderBy: { createdAt: 'desc' },

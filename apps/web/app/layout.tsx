@@ -23,14 +23,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <AuthProvider>
           <div className="min-h-screen flex flex-col">
             <Nav />
-            <main className="container py-8 flex-1">
-              {children}
-            </main>
-            <footer className="border-t border-gray-100 py-4">
-              <div className="container text-center text-sm text-gray-500">
-                Built with PharmaOpsFlow
+            <main className="flex-1 py-6 lg:py-8">
+              <div className="container">
+                {children}
               </div>
-            </footer>
+            </main>
           </div>
         </AuthProvider>
       </body>

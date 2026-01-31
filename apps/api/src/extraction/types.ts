@@ -44,7 +44,6 @@ export interface ExtractionContext {
   knownVendors?: Array<{
     id: string;
     name: string;
-    code: string;
   }>;
   knownInvoiceTypes?: Array<{
     id: string;
@@ -92,7 +91,7 @@ export function needsReviewCheck(
 // Vendor matching helper
 export function fuzzyMatchVendor(
   extractedName: string | null,
-  knownVendors: Array<{ id: string; name: string; code: string }>,
+  knownVendors: Array<{ id: string; name: string }>,
 ): { vendorId: string; confidence: number } | null {
   if (!extractedName || knownVendors.length === 0) {
     return null;

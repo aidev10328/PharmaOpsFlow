@@ -8,6 +8,8 @@ import { ExtractionModule } from './extraction/extraction.module';
 import { QueryModule } from './query/query.module';
 import { ExploreModule } from './explore/explore.module';
 import { ChatModule } from './chat/chat.module';
+import { AdminModule } from './admin/admin.module';
+import { OversightModule } from './oversight/oversight.module';
 import { HealthController } from './health/health.controller';
 import { PrismaService } from './prisma.service';
 
@@ -22,6 +24,8 @@ import { PrismaService } from './prisma.service';
     QueryModule,
     ExploreModule,
     ChatModule,
+    AdminModule,
+    OversightModule,
   ],
   controllers: [HealthController],
   providers: [PrismaService],

@@ -6,10 +6,13 @@ import {
   Param,
   Query,
   UseGuards,
+  UseInterceptors,
+  UploadedFile,
   Request,
   ForbiddenException,
   BadRequestException,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -41,6 +44,45 @@ export class ExtractionController {
   @Get('status')
   async getStatus() {
     return this.extractionService.getProviderInfo();
+  }
+
+  /**
+   * Upload and parse invoice document
+   * POST /extraction/upload-and-parse
+   * Creates a draft invoice, uploads the file, and extracts data
+   */
+  @Post('upload-and-parse')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      limits: {
+        fileSize: 10 * 1024 * 1024, // 10MB
+      },
+    }),
+  )
+  async uploadAndParse(
+    @UploadedFile() file: Express.Multer.File,
+    @Body('pharmacyId') pharmacyId: string,
+    @Request() req,
+  ) {
+    if (!file) {
+      throw new BadRequestException('No file provided');
+    }
+
+    if (!pharmacyId) {
+      throw new BadRequestException('Pharmacy ID is required');
+    }
+
+    // Check pharmacy access
+    const hasAccess = await this.checkPharmacyAccess(req.user, pharmacyId);
+    if (!hasAccess) {
+      throw new ForbiddenException('You do not have access to this pharmacy');
+    }
+
+    return this.extractionService.uploadAndParseInvoice({
+      pharmacyId,
+      file,
+      userId: req.user.id,
+    });
   }
 
   /**
@@ -275,5 +317,36 @@ export class ExtractionController {
       where: { userId_pharmacyId: { userId, pharmacyId } },
     });
     return membership !== null;
+  }
+
+  /**
+   * Helper to check pharmacy access for upload
+   */
+  private async checkPharmacyAccess(user: any, pharmacyId: string): Promise<boolean> {
+    // Admin has full access
+    if (user.role === Role.ADMIN) return true;
+
+    // Get pharmacy
+    const pharmacy = await this.prisma.pharmacy.findUnique({
+      where: { id: pharmacyId },
+      select: { orgId: true },
+    });
+
+    if (!pharmacy) return false;
+
+    // Check if manager has org access
+    if (user.role === Role.COMPANY_MANAGER) {
+      return pharmacy.orgId === user.orgId;
+    }
+
+    // Check pharmacy membership
+    const membership = await this.prisma.pharmacyMember.findUnique({
+      where: { userId_pharmacyId: { userId: user.id, pharmacyId } },
+    });
+
+    if (!membership) return false;
+    return [MemberRole.PHARMACY_ADMIN, MemberRole.PHARMACY_USER].includes(
+      membership.memberRole as MemberRole,
+    );
   }
 }

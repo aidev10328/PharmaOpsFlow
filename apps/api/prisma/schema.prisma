@@ -75,13 +75,19 @@ enum AIProvider {
 // ============================================
 
 model Org {
-  id        String     @id @default(uuid())
-  name      String
-  createdAt DateTime   @default(now())
-  updatedAt DateTime   @updatedAt
+  id                 String     @id @default(uuid())
+  name               String
+  timezone           String     @default("America/Chicago")
+  submissionDueDay   Int        @default(5)
+  processingDueDay   Int        @default(10)
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
 
-  pharmacies Pharmacy[]
-  users      User[]
+  pharmacies           Pharmacy[]
+  users                User[]
+  invoiceTypes         InvoiceType[]
+  vendors              Vendor[]
+  requiredInvoiceTypes RequiredInvoiceType[]
 }
 
 model Pharmacy {
@@ -89,7 +95,12 @@ model Pharmacy {
   orgId     String
   name      String
   code      String   @unique // e.g., "PHM001"
-  address   String?
+  street    String?
+  city      String?
+  state     String?  // 2-letter US state code
+  zip       String?  // US zip code
+  phone     String?
+  website   String?
   timezone  String?  @default("America/New_York")
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
@@ -98,6 +109,8 @@ model Pharmacy {
   org      Org              @relation(fields: [orgId], references: [id], onDelete: Cascade)
   members  PharmacyMember[]
   invoices Invoice[]
+  vendors              Vendor[]
+  requiredInvoiceTypes RequiredInvoiceType[]
   monthlyRequirements MonthlyInvoiceRequirement[]
   slaEvents           SlaEvent[]
   notificationLogs    NotificationLog[]
@@ -131,6 +144,7 @@ model User {
   passwordHash String
   firstName    String?
   lastName     String?
+  phone        String?
   role         Role     @default(PHARMACY_USER)
   orgId        String?  // Users belong to an org (except ADMIN)
   isActive     Boolean  @default(true)
@@ -142,6 +156,7 @@ model User {
   invoiceEvents      InvoiceEvent[]
   uploadedFiles      InvoiceFile[]
   notificationLogs   NotificationLog[]
+  auditLogs          AuditLog[]        @relation("auditLogs")
 
   @@index([orgId])
 }
@@ -152,28 +167,59 @@ model User {
 
 model InvoiceType {
   id          String   @id @default(uuid())
-  name        String   @unique // e.g., "Wholesale Drug", "Equipment", "Services"
+  orgId       String
+  name        String   // e.g., "Rent", "Electricity", "Vendor Invoice"
+  code        String   // Immutable code, e.g., "RENT", "ELECTRICITY"
   description String?
+  isRequired  Boolean  @default(false) // Controls SLA expectations
   isActive    Boolean  @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  invoices Invoice[]
+  org                    Org                   @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  invoices               Invoice[]
+  requiredInvoiceTypes   RequiredInvoiceType[]
+
+  @@unique([orgId, code])
+  @@index([orgId])
 }
 
 model Vendor {
-  id          String   @id @default(uuid())
-  name        String
-  code        String   @unique // e.g., "VND001"
-  address     String?
-  phone       String?
-  email       String?
-  paymentTerms String? // e.g., "Net 30"
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id           String   @id @default(uuid())
+  orgId        String
+  pharmacyId   String?  // null = org-wide vendor
+  name         String
+  externalRef  String?  // External reference / account number
+  phone        String?
+  email        String?
+  paymentTerms String?  // e.g., "Net 30"
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
+  org      Org       @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  pharmacy Pharmacy? @relation(fields: [pharmacyId], references: [id], onDelete: Cascade)
   invoices Invoice[]
+
+  @@index([orgId, pharmacyId, isActive])
+  @@index([orgId])
+}
+
+model RequiredInvoiceType {
+  id            String   @id @default(uuid())
+  orgId         String
+  pharmacyId    String?  // null = applies to all pharmacies
+  invoiceTypeId String
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+
+  org         Org          @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  pharmacy    Pharmacy?    @relation(fields: [pharmacyId], references: [id], onDelete: Cascade)
+  invoiceType InvoiceType  @relation(fields: [invoiceTypeId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, pharmacyId, invoiceTypeId])
+  @@index([orgId])
+  @@index([pharmacyId])
 }
 
 model Invoice {
@@ -361,4 +407,25 @@ model NotificationLog {
   @@index([pharmacyId])
   @@index([userId])
   @@index([type, sentAt])
+}
+
+// ============================================
+// Audit Log Model
+// ============================================
+
+model AuditLog {
+  id           String   @id @default(uuid())
+  actorUserId  String
+  action       String   // e.g., "org.updated", "pharmacy.created", "user.disabled"
+  entityType   String   // e.g., "Org", "Pharmacy", "User", "PharmacyMember"
+  entityId     String
+  before       Json?    // Previous state snapshot
+  after        Json?    // New state snapshot
+  createdAt    DateTime @default(now())
+
+  actor User @relation("auditLogs", fields: [actorUserId], references: [id], onDelete: Restrict)
+
+  @@index([actorUserId])
+  @@index([entityType, entityId])
+  @@index([createdAt])
 }

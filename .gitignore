@@ -12,6 +12,7 @@ out/
 .env.local
 .env.*.local
 .env.generated
+.keys-backup
 
 # IDE
 .idea/

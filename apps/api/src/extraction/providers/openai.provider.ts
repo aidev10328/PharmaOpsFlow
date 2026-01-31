@@ -6,6 +6,10 @@ import {
   ExtractedInvoiceData,
   ExtractionConfidence,
 } from '../types';
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const pdfParse = require('pdf-parse');
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { pdfToPng } = require('pdf-to-png-converter');
 
 const EXTRACTION_PROMPT = `You are an expert invoice data extraction system. Analyze the provided invoice image or PDF and extract the following information.
 
@@ -84,7 +88,7 @@ export class OpenAIProvider implements AIExtractorProvider {
       let prompt = EXTRACTION_PROMPT;
 
       if (context.knownVendors && context.knownVendors.length > 0) {
-        const vendorList = context.knownVendors.map((v) => `- ${v.name} (${v.code})`).join('\n');
+        const vendorList = context.knownVendors.map((v) => `- ${v.name}`).join('\n');
         prompt = prompt.replace('{{KNOWN_VENDORS}}', vendorList);
       } else {
         prompt = prompt.replace('{{KNOWN_VENDORS}}', '(none provided)');
@@ -107,46 +111,122 @@ export class OpenAIProvider implements AIExtractorProvider {
       const base64Data = Buffer.from(fileBuffer).toString('base64');
 
       // Determine media type
-      let mimeType = context.mimeType;
-      if (!mimeType.startsWith('image/') && mimeType !== 'application/pdf') {
-        mimeType = 'image/png'; // Default to image for OpenAI
-      }
+      const mimeType = context.mimeType;
+      const supportedImageTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+      const isPdf = mimeType === 'application/pdf';
 
-      // For PDFs, OpenAI GPT-4 Vision doesn't directly support PDF
-      // We'll treat it as an image URL or use a workaround
-      const imageUrl = `data:${mimeType};base64,${base64Data}`;
+      let openaiResponse: Response;
 
-      // Call OpenAI API
-      const openaiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${this.apiKey}`,
-        },
-        body: JSON.stringify({
-          model: this.model,
-          messages: [
-            {
-              role: 'user',
-              content: [
+      if (isPdf) {
+        // Handle PDF - first try text extraction, then fall back to image conversion
+        this.logger.log('Processing PDF file');
+        const pdfText = await this.extractTextFromPdf(Buffer.from(fileBuffer));
+
+        if (pdfText && pdfText.trim().length >= 50) {
+          // PDF has extractable text - use text-based extraction
+          this.logger.log('Using text-based extraction for PDF');
+          const textPrompt = prompt + `\n\nHere is the invoice text content:\n\n${pdfText}`;
+
+          openaiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${this.apiKey}`,
+            },
+            body: JSON.stringify({
+              model: 'gpt-4o-mini', // Use cheaper model for text extraction
+              messages: [
                 {
-                  type: 'text',
-                  text: prompt,
-                },
-                {
-                  type: 'image_url',
-                  image_url: {
-                    url: imageUrl,
-                    detail: 'high',
-                  },
+                  role: 'user',
+                  content: textPrompt,
                 },
               ],
+              max_tokens: 4096,
+              temperature: 0.1,
+            }),
+          });
+        } else {
+          // PDF is scanned/image-based - convert to image and use Vision
+          this.logger.log('PDF appears to be scanned/image-based, converting to image for Vision API');
+          const pdfImage = await this.convertPdfToImage(Buffer.from(fileBuffer));
+
+          if (!pdfImage) {
+            throw new Error('Failed to convert PDF to image. Please try uploading an image (JPG, PNG) instead.');
+          }
+
+          const imageUrl = `data:image/png;base64,${pdfImage.toString('base64')}`;
+
+          openaiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${this.apiKey}`,
             },
-          ],
-          max_tokens: 4096,
-          temperature: 0.1,
-        }),
-      });
+            body: JSON.stringify({
+              model: this.model,
+              messages: [
+                {
+                  role: 'user',
+                  content: [
+                    {
+                      type: 'text',
+                      text: prompt,
+                    },
+                    {
+                      type: 'image_url',
+                      image_url: {
+                        url: imageUrl,
+                        detail: 'high',
+                      },
+                    },
+                  ],
+                },
+              ],
+              max_tokens: 4096,
+              temperature: 0.1,
+            }),
+          });
+        }
+      } else {
+        // Handle images using Vision
+        let imageMimeType = mimeType;
+        if (!supportedImageTypes.includes(mimeType)) {
+          imageMimeType = 'image/png';
+        }
+
+        const imageUrl = `data:${imageMimeType};base64,${base64Data}`;
+
+        openaiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${this.apiKey}`,
+          },
+          body: JSON.stringify({
+            model: this.model,
+            messages: [
+              {
+                role: 'user',
+                content: [
+                  {
+                    type: 'text',
+                    text: prompt,
+                  },
+                  {
+                    type: 'image_url',
+                    image_url: {
+                      url: imageUrl,
+                      detail: 'high',
+                    },
+                  },
+                ],
+              },
+            ],
+            max_tokens: 4096,
+            temperature: 0.1,
+          }),
+        });
+      }
 
       if (!openaiResponse.ok) {
         const errorText = await openaiResponse.text();
@@ -274,5 +354,38 @@ export class OpenAIProvider implements AIExtractorProvider {
   private normalizeConfidence(value: unknown): number {
     if (typeof value !== 'number') return 0;
     return Math.max(0, Math.min(1, value));
+  }
+
+  private async extractTextFromPdf(buffer: Buffer): Promise<string> {
+    try {
+      const data = await pdfParse(buffer);
+      return data.text || '';
+    } catch (error) {
+      this.logger.error(`PDF text extraction failed: ${error.message}`);
+      return '';
+    }
+  }
+
+  private async convertPdfToImage(buffer: Buffer): Promise<Buffer | null> {
+    try {
+      this.logger.log('Converting PDF to PNG image');
+      const pngPages = await pdfToPng(buffer, {
+        disableFontFace: true,
+        useSystemFonts: true,
+        viewportScale: 2.0, // Higher quality for better OCR
+        pagesToProcess: [1], // Only process first page
+      });
+
+      if (pngPages && pngPages.length > 0 && pngPages[0].content) {
+        this.logger.log('PDF successfully converted to PNG');
+        return pngPages[0].content;
+      }
+
+      this.logger.warn('PDF conversion returned no pages');
+      return null;
+    } catch (error) {
+      this.logger.error(`PDF to image conversion failed: ${error.message}`);
+      return null;
+    }
   }
 }
