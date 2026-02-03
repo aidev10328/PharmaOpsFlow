@@ -10,10 +10,19 @@ type Pharmacy = {
   id: string;
   name: string;
   code: string;
-  address?: string;
+  street?: string;
+  city?: string;
+  state?: string;
+  zip?: string;
+  phone?: string;
   org: { id: string; name: string };
-  members?: { memberRole: string }[];
+  members?: { memberRole: string; user: { email: string } }[];
 };
+
+function formatAddress(p: Pharmacy): string {
+  const parts = [p.street, [p.city, p.state].filter(Boolean).join(', '), p.zip].filter(Boolean);
+  return parts.join(', ') || 'Not specified';
+}
 
 export default function PharmacyDashboard() {
   const { user, loading } = useAuth();
@@ -204,7 +213,19 @@ export default function PharmacyDashboard() {
                   <dl className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                       <dt className="text-xs font-medium text-gray-500 uppercase tracking-wider">Address</dt>
-                      <dd className="mt-1 text-sm text-gray-900">{selectedPharmacy.address || 'Not specified'}</dd>
+                      <dd className="mt-1 text-sm text-gray-900">{formatAddress(selectedPharmacy)}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs font-medium text-gray-500 uppercase tracking-wider">Phone</dt>
+                      <dd className="mt-1 text-sm text-gray-900">{selectedPharmacy.phone || 'Not specified'}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs font-medium text-gray-500 uppercase tracking-wider">Email</dt>
+                      <dd className="mt-1 text-sm text-gray-900">
+                        {selectedPharmacy.members && selectedPharmacy.members.length > 0
+                          ? selectedPharmacy.members[0].user.email
+                          : 'Not specified'}
+                      </dd>
                     </div>
                     <div>
                       <dt className="text-xs font-medium text-gray-500 uppercase tracking-wider">Organization</dt>
@@ -272,7 +293,13 @@ export default function PharmacyDashboard() {
                       </span>
                     </div>
                     <h4 className="font-semibold text-sm text-gray-900">{pharmacy.name}</h4>
-                    <p className="text-xs text-gray-500 mt-1">{pharmacy.address || 'No address'}</p>
+                    <p className="text-xs text-gray-500 mt-1">{formatAddress(pharmacy)}</p>
+                    {pharmacy.phone && (
+                      <p className="text-xs text-gray-500">{pharmacy.phone}</p>
+                    )}
+                    {pharmacy.members && pharmacy.members.length > 0 && (
+                      <p className="text-xs text-gray-500">{pharmacy.members[0].user.email}</p>
+                    )}
                   </div>
                 ))}
               </div>

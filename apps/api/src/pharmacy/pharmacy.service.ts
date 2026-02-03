@@ -15,6 +15,7 @@ export class PharmacyService {
       return this.prisma.pharmacy.findMany({
         include: {
           org: { select: { id: true, name: true } },
+          members: { select: { user: { select: { email: true } } } },
           _count: { select: { members: true } },
         },
         orderBy: { name: 'asc' },
@@ -27,6 +28,7 @@ export class PharmacyService {
         where: { orgId: userOrgId },
         include: {
           org: { select: { id: true, name: true } },
+          members: { select: { user: { select: { email: true } } } },
           _count: { select: { members: true } },
         },
         orderBy: { name: 'asc' },
@@ -43,8 +45,7 @@ export class PharmacyService {
       include: {
         org: { select: { id: true, name: true } },
         members: {
-          where: { userId },
-          select: { memberRole: true },
+          select: { memberRole: true, user: { select: { email: true } } },
         },
       },
       orderBy: { name: 'asc' },

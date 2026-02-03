@@ -53,8 +53,8 @@ export default function Nav() {
                 </Link>
                 {['ADMIN', 'COMPANY_MANAGER'].includes(user.role) && (
                   <>
-                    <Link href="/dashboard/manager/explore" className={navLinkClass('/dashboard/manager/explore')}>
-                      Explore
+                    <Link href="/dashboard/manager/invoices" className={navLinkClass('/dashboard/manager/invoices')}>
+                      Operations
                     </Link>
                     <Link href="/dashboard/manager/chat" className={navLinkClass('/dashboard/manager/chat')}>
                       AI Chat
