@@ -152,6 +152,11 @@ export class InvoiceService {
           pharmacy: { select: { id: true, name: true, code: true } },
           vendor: { select: { id: true, name: true } },
           invoiceType: { select: { id: true, name: true } },
+          files: {
+            select: { id: true, originalName: true, mimeType: true, storagePath: true },
+            take: 1,
+            orderBy: { createdAt: 'desc' },
+          },
         },
         orderBy: [{ dueDate: 'asc' }, { createdAt: 'desc' }],
         skip,
@@ -199,9 +204,11 @@ export class InvoiceService {
   }
 
   /**
-   * Update an invoice (only allowed in DRAFT or NEEDS_INFO status)
+   * Update an invoice
+   * - Pharmacy users: can only edit in DRAFT, NEEDS_INFO, or REJECTED status
+   * - Managers/Admins: can edit in any status
    */
-  async update(invoiceId: string, dto: UpdateInvoiceDto, userId: string) {
+  async update(invoiceId: string, dto: UpdateInvoiceDto, userId: string, userRole?: Role) {
     const invoice = await this.prisma.invoice.findUnique({
       where: { id: invoiceId },
     });
@@ -210,11 +217,31 @@ export class InvoiceService {
       throw new NotFoundException('Invoice not found');
     }
 
-    // Only allow updates in DRAFT or NEEDS_INFO status
-    if (invoice.status !== InvoiceStatus.DRAFT && invoice.status !== InvoiceStatus.NEEDS_INFO) {
+    // Check edit permissions based on role and status
+    const isManagerOrAdmin = userRole === Role.ADMIN || userRole === Role.COMPANY_MANAGER;
+    const editableStatuses: InvoiceStatus[] = [InvoiceStatus.DRAFT, InvoiceStatus.NEEDS_INFO, InvoiceStatus.REJECTED];
+
+    if (!isManagerOrAdmin && !editableStatuses.includes(invoice.status)) {
       throw new BadRequestException(
-        `Cannot update invoice in ${invoice.status} status`,
+        `Cannot update invoice in ${invoice.status} status. Contact your manager if changes are needed.`,
       );
+    }
+
+    // Check for duplicate invoice number (same vendor + pharmacy + invoice number)
+    const vendorId = dto.vendorId || invoice.vendorId;
+    const invoiceNumber = dto.invoiceNumber || invoice.invoiceNumber;
+    if (vendorId && invoiceNumber) {
+      const isDuplicate = await this.checkDuplicateInvoice(
+        invoice.pharmacyId,
+        vendorId,
+        invoiceNumber,
+        invoiceId, // Exclude current invoice from check
+      );
+      if (isDuplicate) {
+        throw new BadRequestException(
+          `An invoice with number "${invoiceNumber}" already exists for this vendor and pharmacy`,
+        );
+      }
     }
 
     // Build update data
@@ -256,6 +283,45 @@ export class InvoiceService {
    * Submit an invoice for approval
    */
   async submit(invoiceId: string, userId: string, dto?: InvoiceStatusDto) {
+    // Get invoice details first
+    const invoice = await this.prisma.invoice.findUnique({
+      where: { id: invoiceId },
+    });
+
+    if (!invoice) {
+      throw new NotFoundException('Invoice not found');
+    }
+
+    // Validate required fields before submission
+    if (!invoice.vendorId) {
+      throw new BadRequestException('Vendor is required before submitting');
+    }
+    if (!invoice.invoiceTypeId) {
+      throw new BadRequestException('Invoice type is required before submitting');
+    }
+    if (!invoice.invoiceNumber) {
+      throw new BadRequestException('Invoice number is required before submitting');
+    }
+    if (!invoice.amount) {
+      throw new BadRequestException('Amount is required before submitting');
+    }
+    if (!invoice.dueDate) {
+      throw new BadRequestException('Due date is required before submitting');
+    }
+
+    // Check for duplicate invoice number (same vendor + pharmacy + invoice number)
+    const isDuplicate = await this.checkDuplicateInvoice(
+      invoice.pharmacyId,
+      invoice.vendorId,
+      invoice.invoiceNumber,
+      invoiceId,
+    );
+    if (isDuplicate) {
+      throw new BadRequestException(
+        `An invoice with number "${invoice.invoiceNumber}" already exists for this vendor and pharmacy`,
+      );
+    }
+
     return this.transitionStatus(
       invoiceId,
       InvoiceStatus.SUBMITTED,
@@ -442,6 +508,32 @@ export class InvoiceService {
   }
 
   /**
+   * Create a new vendor
+   */
+  async createVendor(data: { name: string; externalRef?: string; orgId: string }) {
+    // Check if vendor with same name already exists in this org
+    const existing = await this.prisma.vendor.findFirst({
+      where: {
+        name: { equals: data.name.trim(), mode: 'insensitive' },
+        orgId: data.orgId,
+      },
+    });
+
+    if (existing) {
+      throw new BadRequestException(`Vendor "${data.name}" already exists`);
+    }
+
+    return this.prisma.vendor.create({
+      data: {
+        name: data.name.trim(),
+        externalRef: data.externalRef?.trim() || null,
+        orgId: data.orgId,
+        isActive: true,
+      },
+    });
+  }
+
+  /**
    * Get invoice types list
    */
   async getInvoiceTypes() {
@@ -513,5 +605,122 @@ export class InvoiceService {
       totalAmount: totalAmount._sum.amount || 0,
       upcomingDue,
     };
+  }
+
+  /**
+   * Delete a draft invoice
+   * Only DRAFT invoices can be deleted
+   */
+  async delete(invoiceId: string, _userId?: string) {
+    const invoice = await this.prisma.invoice.findUnique({
+      where: { id: invoiceId },
+      select: { id: true, status: true },
+    });
+
+    if (!invoice) {
+      throw new NotFoundException('Invoice not found');
+    }
+
+    // Only allow deleting draft invoices
+    if (invoice.status !== InvoiceStatus.DRAFT) {
+      throw new BadRequestException('Only draft invoices can be deleted');
+    }
+
+    // Delete the invoice (cascade will handle files, events, extractions)
+    await this.prisma.invoice.delete({
+      where: { id: invoiceId },
+    });
+
+    return { message: 'Invoice deleted successfully' };
+  }
+
+  /**
+   * Clean up abandoned draft invoices
+   * Deletes DRAFT invoices that have no invoice number and are older than the specified age
+   * This handles cases where users upload an invoice but close the browser before saving
+   */
+  async cleanupAbandonedDrafts(maxAgeHours: number = 24): Promise<{ deleted: number }> {
+    const cutoffDate = new Date(Date.now() - maxAgeHours * 60 * 60 * 1000);
+
+    // Find and delete abandoned drafts:
+    // - Status is DRAFT
+    // - No invoice number (temp record from upload-and-parse)
+    // - Created more than maxAgeHours ago
+    const abandonedDrafts = await this.prisma.invoice.findMany({
+      where: {
+        status: InvoiceStatus.DRAFT,
+        invoiceNumber: null,
+        createdAt: { lt: cutoffDate },
+      },
+      select: { id: true },
+    });
+
+    if (abandonedDrafts.length === 0) {
+      return { deleted: 0 };
+    }
+
+    // Delete all abandoned drafts (cascade handles related records)
+    const result = await this.prisma.invoice.deleteMany({
+      where: {
+        id: { in: abandonedDrafts.map((d) => d.id) },
+      },
+    });
+
+    return { deleted: result.count };
+  }
+
+  /**
+   * Clean up abandoned draft invoices for a specific user
+   * Deletes DRAFT invoices with no invoice number that are older than 5 minutes
+   * Called when a user visits the upload page to clean up their previous abandoned uploads
+   */
+  async cleanupUserAbandonedDrafts(userId: string, pharmacyIds: string[]): Promise<{ deleted: number }> {
+    // Only clean up drafts older than 5 minutes (to avoid deleting current upload in progress)
+    const cutoffDate = new Date(Date.now() - 5 * 60 * 1000);
+
+    // Find and delete abandoned drafts for this user's pharmacies
+    const abandonedDrafts = await this.prisma.invoice.findMany({
+      where: {
+        status: InvoiceStatus.DRAFT,
+        invoiceNumber: null,
+        pharmacyId: { in: pharmacyIds },
+        createdAt: { lt: cutoffDate },
+      },
+      select: { id: true },
+    });
+
+    if (abandonedDrafts.length === 0) {
+      return { deleted: 0 };
+    }
+
+    // Delete all abandoned drafts (cascade handles related records)
+    const result = await this.prisma.invoice.deleteMany({
+      where: {
+        id: { in: abandonedDrafts.map((d) => d.id) },
+      },
+    });
+
+    return { deleted: result.count };
+  }
+
+  /**
+   * Check for duplicate invoice number for same vendor + pharmacy combination
+   */
+  async checkDuplicateInvoice(
+    pharmacyId: string,
+    vendorId: string,
+    invoiceNumber: string,
+    excludeInvoiceId?: string,
+  ): Promise<boolean> {
+    const existing = await this.prisma.invoice.findFirst({
+      where: {
+        pharmacyId,
+        vendorId,
+        invoiceNumber: { equals: invoiceNumber, mode: 'insensitive' },
+        id: excludeInvoiceId ? { not: excludeInvoiceId } : undefined,
+      },
+    });
+
+    return existing !== null;
   }
 }

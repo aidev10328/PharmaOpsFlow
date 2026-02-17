@@ -1,16 +1,20 @@
+// Document type classification
+export type DocumentType = 'INVOICE' | 'STATEMENT' | 'CREDIT_MEMO' | 'OTHER';
+
 // Normalized extraction JSON schema
 export interface ExtractedInvoiceData {
   vendorName: string | null;
   invoiceNumber: string | null;
+  accountNumber?: string | null; // Customer account number with the vendor (optional)
+  documentType?: DocumentType | null; // INVOICE, STATEMENT, CREDIT_MEMO, or OTHER
   invoiceDate: string | null; // YYYY-MM-DD
-  dueDate: string | null; // YYYY-MM-DD
+  dueDate: string | null; // YYYY-MM-DD or "DUE_UPON_RECEIPT"
+  paymentTerms?: string | null; // e.g., "Net 30", "Due upon Receipt", "2% 10 Net 30"
   amount: number | null;
   currency: string | null; // Default: USD
-  invoiceType: string | null; // RENT|ELECTRICITY|VENDOR_INVOICE|INTERNET|INSURANCE|etc
-  lineItems?: Array<{
-    description: string;
-    amount: number | null;
-  }>;
+  invoiceType: string | null; // RENT|ELECTRICITY|VENDOR_INVOICE|INTERNET|INSURANCE|etc (expense category)
+  payableTo?: string | null; // Name of entity to pay (e.g., "Payable to: TOP SYSTEM")
+  paymentAddress?: string | null; // Address to send payment to
   notes?: string | null;
 }
 
@@ -140,38 +144,55 @@ export function fuzzyMatchVendor(
 // Invoice type mapping helper
 export function mapInvoiceType(
   extractedType: string | null,
-  knownTypes: Array<{ id: string; name: string }>,
+  knownTypes: Array<{ id: string; name: string; code?: string }>,
 ): { invoiceTypeId: string; confidence: number } | null {
   if (!extractedType || knownTypes.length === 0) {
     return null;
   }
 
-  const normalizedExtracted = extractedType.toLowerCase().trim();
+  const normalizedExtracted = extractedType.toLowerCase().trim().replace(/_/g, ' ');
 
-  // Common type mappings
+  // Common type mappings (key is known type name or code, value is aliases)
   const typeAliases: Record<string, string[]> = {
-    'wholesale drug': ['drug', 'wholesale', 'medication', 'pharmaceutical', 'vendor_invoice'],
+    'vendor invoice': ['vendor_invoice', 'vendor', 'drug', 'wholesale', 'medication', 'pharmaceutical'],
+    'wholesale drug': ['drug', 'wholesale', 'medication', 'pharmaceutical'],
     'equipment': ['equipment', 'supplies', 'medical equipment'],
     'services': ['service', 'professional', 'consulting'],
-    'utilities': ['utility', 'utilities', 'electricity', 'gas', 'water'],
+    'utilities': ['utility', 'utilities'],
+    'electricity': ['electricity', 'electric', 'power'],
     'rent': ['rent', 'lease', 'property'],
     'insurance': ['insurance'],
     'maintenance': ['maintenance', 'repair'],
+    'internet': ['internet', 'network', 'wifi'],
     'other': ['other', 'misc', 'miscellaneous'],
   };
 
   for (const knownType of knownTypes) {
-    const normalizedKnown = knownType.name.toLowerCase().trim();
+    const normalizedName = knownType.name.toLowerCase().trim();
+    const normalizedCode = knownType.code?.toLowerCase().trim().replace(/_/g, ' ');
 
-    // Direct match
-    if (normalizedExtracted === normalizedKnown) {
+    // Direct match on name
+    if (normalizedExtracted === normalizedName) {
       return { invoiceTypeId: knownType.id, confidence: 1.0 };
     }
 
-    // Alias match
-    const aliases = typeAliases[normalizedKnown] || [];
+    // Direct match on code (e.g., "vendor_invoice" matches code "VENDOR_INVOICE")
+    if (normalizedCode && normalizedExtracted === normalizedCode) {
+      return { invoiceTypeId: knownType.id, confidence: 1.0 };
+    }
+
+    // Alias match by name
+    const aliases = typeAliases[normalizedName] || [];
     if (aliases.some((a) => normalizedExtracted.includes(a) || a.includes(normalizedExtracted))) {
       return { invoiceTypeId: knownType.id, confidence: 0.85 };
+    }
+
+    // Alias match by code (if code is different from name)
+    if (normalizedCode && normalizedCode !== normalizedName) {
+      const codeAliases = typeAliases[normalizedCode] || [];
+      if (codeAliases.some((a) => normalizedExtracted.includes(a) || a.includes(normalizedExtracted))) {
+        return { invoiceTypeId: knownType.id, confidence: 0.85 };
+      }
     }
   }
 

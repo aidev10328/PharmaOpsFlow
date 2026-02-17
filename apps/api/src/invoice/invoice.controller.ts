@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Patch,
+  Delete,
   Body,
   Param,
   Query,
@@ -115,6 +116,26 @@ export class InvoiceController {
   }
 
   /**
+   * Create a new vendor
+   * Any authenticated user can create a vendor for their org
+   */
+  @Post('vendors')
+  async createVendor(
+    @Body() body: { name: string; externalRef?: string },
+    @Request() req,
+  ) {
+    const orgId = req.user.orgId || req.user.org?.id;
+    if (!orgId) {
+      throw new ForbiddenException('User must belong to an organization');
+    }
+    return this.invoiceService.createVendor({
+      name: body.name,
+      externalRef: body.externalRef,
+      orgId,
+    });
+  }
+
+  /**
    * Get invoice types list
    */
   @Get('types')
@@ -140,7 +161,9 @@ export class InvoiceController {
   }
 
   /**
-   * Update an invoice (only in DRAFT or NEEDS_INFO status)
+   * Update an invoice
+   * - Pharmacy users: can only edit in DRAFT, NEEDS_INFO, or REJECTED status
+   * - Managers/Admins: can edit in any status
    */
   @Patch(':id')
   async update(
@@ -157,7 +180,24 @@ export class InvoiceController {
     if (!hasAccess) {
       throw new ForbiddenException('You do not have access to update this invoice');
     }
-    return this.invoiceService.update(id, dto, req.user.id);
+    return this.invoiceService.update(id, dto, req.user.id, req.user.role);
+  }
+
+  /**
+   * Delete a draft invoice
+   */
+  @Delete(':id')
+  async delete(@Param('id') id: string, @Request() req) {
+    const invoice = await this.invoiceService.findOne(id);
+    const hasAccess = await this.checkPharmacyAccess(
+      req.user,
+      invoice.pharmacyId,
+      [MemberRole.PHARMACY_ADMIN, MemberRole.PHARMACY_USER],
+    );
+    if (!hasAccess) {
+      throw new ForbiddenException('You do not have access to delete this invoice');
+    }
+    return this.invoiceService.delete(id);
   }
 
   /**
@@ -254,6 +294,58 @@ export class InvoiceController {
   ) {
     await this.validateManagerAccess(req, id);
     return this.invoiceService.reject(id, req.user.id, dto);
+  }
+
+  /**
+   * Clean up abandoned draft invoices (admin only)
+   * Deletes DRAFT invoices with no invoice number that are older than specified hours
+   */
+  @Post('cleanup-abandoned')
+  @UseGuards(RolesGuard)
+  @Roles(Role.ADMIN)
+  async cleanupAbandonedDrafts(
+    @Body() body: { maxAgeHours?: number },
+  ) {
+    return this.invoiceService.cleanupAbandonedDrafts(body.maxAgeHours || 24);
+  }
+
+  /**
+   * Clean up current user's abandoned draft invoices
+   * Called automatically when user visits the upload page
+   * Deletes DRAFT invoices with no invoice number that are older than 5 minutes
+   */
+  @Post('cleanup-my-abandoned')
+  async cleanupMyAbandonedDrafts(@Request() req) {
+    // Get user's pharmacy memberships
+    const memberships = await this.invoiceService['prisma'].pharmacyMember.findMany({
+      where: { userId: req.user.id },
+      select: { pharmacyId: true },
+    });
+
+    const pharmacyIds = memberships.map((m) => m.pharmacyId);
+
+    // Also include pharmacies for managers/admins
+    if (req.user.role === Role.COMPANY_MANAGER && req.user.orgId) {
+      const orgPharmacies = await this.invoiceService['prisma'].pharmacy.findMany({
+        where: { orgId: req.user.orgId },
+        select: { id: true },
+      });
+      pharmacyIds.push(...orgPharmacies.map((p) => p.id));
+    } else if (req.user.role === Role.ADMIN) {
+      const allPharmacies = await this.invoiceService['prisma'].pharmacy.findMany({
+        select: { id: true },
+      });
+      pharmacyIds.push(...allPharmacies.map((p) => p.id));
+    }
+
+    // Remove duplicates
+    const uniquePharmacyIds = [...new Set(pharmacyIds)];
+
+    if (uniquePharmacyIds.length === 0) {
+      return { deleted: 0 };
+    }
+
+    return this.invoiceService.cleanupUserAbandonedDrafts(req.user.id, uniquePharmacyIds);
   }
 
   /**

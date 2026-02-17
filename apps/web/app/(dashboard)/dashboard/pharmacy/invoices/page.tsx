@@ -23,6 +23,13 @@ type InvoiceType = {
   name: string;
 };
 
+type InvoiceFile = {
+  id: string;
+  originalName: string;
+  mimeType: string;
+  storagePath: string;
+};
+
 type Invoice = {
   id: string;
   invoiceNumber: string;
@@ -34,6 +41,7 @@ type Invoice = {
   pharmacy: Pharmacy;
   vendor: Vendor;
   invoiceType: InvoiceType;
+  files: InvoiceFile[];
   createdAt: string;
 };
 
@@ -76,6 +84,7 @@ export default function PharmacyInvoicesPage() {
   const [loadingInvoices, setLoadingInvoices] = useState(true);
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [stats, setStats] = useState<any>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!loading && !user) {
@@ -172,6 +181,27 @@ export default function PharmacyInvoicesPage() {
   const isOverdue = (dueDate: string, status: string) => {
     if (['PAID', 'REJECTED'].includes(status)) return false;
     return new Date(dueDate) < new Date();
+  };
+
+  const handleDeleteDraft = async (invoiceId: string) => {
+    if (!confirm('Are you sure you want to delete this draft invoice?')) return;
+
+    setDeletingId(invoiceId);
+    try {
+      const res = await apiFetch(`/invoices/${invoiceId}`, { method: 'DELETE' });
+      if (res.ok) {
+        // Refresh the list
+        fetchInvoices(pagination?.page || 1);
+      } else {
+        const errData = await res.json();
+        alert(errData.message || 'Failed to delete invoice');
+      }
+    } catch (err) {
+      console.error('Failed to delete invoice:', err);
+      alert('Failed to delete invoice');
+    } finally {
+      setDeletingId(null);
+    }
   };
 
   if (loading) {
@@ -368,7 +398,7 @@ export default function PharmacyInvoicesPage() {
                 <thead>
                   <tr className="bg-slate-50 border-b border-gray-200">
                     <th className="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                      Invoice
+                      Invoice #
                     </th>
                     <th className="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
                       Vendor
@@ -376,17 +406,20 @@ export default function PharmacyInvoicesPage() {
                     <th className="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider hidden md:table-cell">
                       Type
                     </th>
-                    <th className="px-5 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                      Amount
+                    <th className="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider hidden sm:table-cell">
+                      Invoice Date
                     </th>
                     <th className="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider hidden lg:table-cell">
                       Due Date
+                    </th>
+                    <th className="px-5 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                      Amount
                     </th>
                     <th className="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
                       Status
                     </th>
                     <th className="px-5 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                      <span className="sr-only">Actions</span>
+                      Actions
                     </th>
                   </tr>
                 </thead>
@@ -397,16 +430,10 @@ export default function PharmacyInvoicesPage() {
                         <div className="font-semibold text-sm text-gray-900">
                           {invoice.invoiceNumber || <span className="text-gray-400 italic font-normal">Draft</span>}
                         </div>
-                        <div className="text-xs text-gray-500 mt-0.5">
-                          {invoice.invoiceDate ? formatDate(invoice.invoiceDate) : '-'}
-                        </div>
                       </td>
                       <td className="px-5 py-3.5">
                         <div className="text-sm text-gray-900">
                           {invoice.vendor?.name || <span className="text-gray-400 italic">Not set</span>}
-                        </div>
-                        <div className="text-xs text-gray-400 mt-0.5">
-                          {invoice.vendor?.code || '-'}
                         </div>
                       </td>
                       <td className="px-5 py-3.5 hidden md:table-cell">
@@ -414,9 +441,9 @@ export default function PharmacyInvoicesPage() {
                           {invoice.invoiceType?.name || <span className="text-gray-400 italic">Not set</span>}
                         </span>
                       </td>
-                      <td className="px-5 py-3.5 text-right">
-                        <span className="text-sm font-semibold text-gray-900 tabular-nums">
-                          {invoice.amount != null ? formatCurrency(invoice.amount) : <span className="text-gray-400 font-normal">-</span>}
+                      <td className="px-5 py-3.5 hidden sm:table-cell">
+                        <span className="text-sm text-gray-600">
+                          {invoice.invoiceDate ? formatDate(invoice.invoiceDate) : <span className="text-gray-400">-</span>}
                         </span>
                       </td>
                       <td className="px-5 py-3.5 hidden lg:table-cell">
@@ -429,6 +456,11 @@ export default function PharmacyInvoicesPage() {
                           )}
                         </div>
                       </td>
+                      <td className="px-5 py-3.5 text-right">
+                        <span className="text-sm font-semibold text-gray-900 tabular-nums">
+                          {invoice.amount != null ? formatCurrency(invoice.amount) : <span className="text-gray-400 font-normal">-</span>}
+                        </span>
+                      </td>
                       <td className="px-5 py-3.5">
                         <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ${STATUS_COLORS[invoice.status] || 'bg-gray-100 text-gray-700'}`}>
                           <span className={`w-1.5 h-1.5 rounded-full ${STATUS_DOTS[invoice.status] || 'bg-gray-400'}`} />
@@ -437,6 +469,19 @@ export default function PharmacyInvoicesPage() {
                       </td>
                       <td className="px-5 py-3.5 text-right">
                         <div className="flex items-center justify-end gap-1">
+                          {invoice.files && invoice.files.length > 0 && (
+                            <a
+                              href={`${process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4000'}/invoice-files/${invoice.files[0].id}/download`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="p-1.5 rounded text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                              title={`View ${invoice.files[0].originalName}`}
+                            >
+                              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                                <path fillRule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm2 6a1 1 0 011-1h6a1 1 0 110 2H7a1 1 0 01-1-1zm1 3a1 1 0 100 2h6a1 1 0 100-2H7z" clipRule="evenodd" />
+                              </svg>
+                            </a>
+                          )}
                           <Link
                             href={`/dashboard/pharmacy/invoices/${invoice.id}`}
                             className="text-sm font-medium text-primary-600 hover:text-primary-800 px-2 py-1 rounded hover:bg-primary-50 transition-colors"
@@ -450,6 +495,16 @@ export default function PharmacyInvoicesPage() {
                             >
                               Edit
                             </Link>
+                          )}
+                          {invoice.status === 'DRAFT' && (
+                            <button
+                              onClick={() => handleDeleteDraft(invoice.id)}
+                              disabled={deletingId === invoice.id}
+                              className="text-sm font-medium text-red-500 hover:text-red-700 px-2 py-1 rounded hover:bg-red-50 transition-colors disabled:opacity-50"
+                              title="Delete draft"
+                            >
+                              {deletingId === invoice.id ? '...' : 'Delete'}
+                            </button>
                           )}
                         </div>
                       </td>

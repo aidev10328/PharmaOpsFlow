@@ -178,7 +178,7 @@ export class ExtractionService {
         }),
         this.prisma.invoiceType.findMany({
           where: { isActive: true },
-          select: { id: true, name: true },
+          select: { id: true, name: true, code: true },
         }),
       ]);
 
@@ -404,7 +404,7 @@ export class ExtractionService {
         }),
         this.prisma.invoiceType.findMany({
           where: { isActive: true },
-          select: { id: true, name: true },
+          select: { id: true, name: true, code: true },
         }),
       ]);
 
@@ -527,7 +527,7 @@ export class ExtractionService {
         }),
         this.prisma.invoiceType.findMany({
           where: { isActive: true },
-          select: { id: true, name: true },
+          select: { id: true, name: true, code: true },
         }),
       ]);
 

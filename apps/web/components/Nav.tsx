@@ -51,6 +51,11 @@ export default function Nav() {
                 <Link href="/dashboard" className={navLinkClass('/dashboard')}>
                   Dashboard
                 </Link>
+                {['PHARMACY_ADMIN', 'PHARMACY_USER'].includes(user.role) && (
+                  <Link href="/dashboard/pharmacy/invoices" className={navLinkClass('/dashboard/pharmacy/invoices')}>
+                    Invoices
+                  </Link>
+                )}
                 {['ADMIN', 'COMPANY_MANAGER'].includes(user.role) && (
                   <>
                     <Link href="/dashboard/manager/invoices" className={navLinkClass('/dashboard/manager/invoices')}>

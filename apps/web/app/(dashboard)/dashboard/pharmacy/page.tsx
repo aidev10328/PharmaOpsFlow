@@ -2,7 +2,7 @@
 
 import { useAuth, PharmacyMembership } from '../../../../components/AuthProvider';
 import { useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { apiFetch } from '../../../../lib/api';
 import SlaAlertWidget from '../../../../components/sla/SlaAlertWidget';
 
@@ -19,6 +19,12 @@ type Pharmacy = {
   members?: { memberRole: string; user: { email: string } }[];
 };
 
+type InvoiceStats = {
+  totalCount: number;
+  totalAmount: number;
+  statusCounts: Record<string, number>;
+};
+
 function formatAddress(p: Pharmacy): string {
   const parts = [p.street, [p.city, p.state].filter(Boolean).join(', '), p.zip].filter(Boolean);
   return parts.join(', ') || 'Not specified';
@@ -30,6 +36,8 @@ export default function PharmacyDashboard() {
   const [pharmacies, setPharmacies] = useState<Pharmacy[]>([]);
   const [loadingPharmacies, setLoadingPharmacies] = useState(true);
   const [selectedPharmacy, setSelectedPharmacy] = useState<Pharmacy | null>(null);
+  const [invoiceStats, setInvoiceStats] = useState<InvoiceStats | null>(null);
+  const [loadingStats, setLoadingStats] = useState(false);
 
   useEffect(() => {
     if (!loading && !user) {
@@ -59,6 +67,46 @@ export default function PharmacyDashboard() {
       fetchPharmacies();
     }
   }, [user]);
+
+  // Fetch invoice stats when selected pharmacy changes
+  const fetchInvoiceStats = useCallback(async (pharmacyId: string) => {
+    setLoadingStats(true);
+    try {
+      const res = await apiFetch(`/invoices?pharmacyId=${pharmacyId}&limit=1000`);
+      if (res.ok) {
+        const data = await res.json();
+        const invoices = Array.isArray(data) ? data : data.data || data.rows || [];
+        const statusCounts: Record<string, number> = {};
+        let totalAmount = 0;
+
+        invoices.forEach((inv: any) => {
+          statusCounts[inv.status] = (statusCounts[inv.status] || 0) + 1;
+          totalAmount += parseFloat(inv.amount) || 0;
+        });
+
+        setInvoiceStats({
+          totalCount: invoices.length,
+          totalAmount,
+          statusCounts,
+        });
+      } else {
+        // Set empty stats if API returns error
+        setInvoiceStats({ totalCount: 0, totalAmount: 0, statusCounts: {} });
+      }
+    } catch (e) {
+      console.error('Failed to fetch invoice stats:', e);
+      // Set empty stats on error
+      setInvoiceStats({ totalCount: 0, totalAmount: 0, statusCounts: {} });
+    } finally {
+      setLoadingStats(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (selectedPharmacy) {
+      fetchInvoiceStats(selectedPharmacy.id);
+    }
+  }, [selectedPharmacy, fetchInvoiceStats]);
 
   if (loading) {
     return (
@@ -118,14 +166,20 @@ export default function PharmacyDashboard() {
             </svg>
           </div>
           <div>
-            <p className="text-sm font-medium text-gray-900">
-              {pharmacies.length === 0
-                ? "You don't have access to any pharmacies yet."
-                : `You have access to ${pharmacies.length} pharmacy${pharmacies.length > 1 ? 'ies' : ''}.`
-              }
-            </p>
-            {pharmacies.length === 0 && (
-              <p className="text-xs text-gray-500 mt-0.5">Contact your administrator to get access.</p>
+            {loadingPharmacies ? (
+              <p className="text-sm font-medium text-gray-500">Loading your pharmacies...</p>
+            ) : (
+              <>
+                <p className="text-sm font-medium text-gray-900">
+                  {pharmacies.length === 0
+                    ? "You don't have access to any pharmacies yet."
+                    : `You have access to ${pharmacies.length} pharmacy${pharmacies.length > 1 ? 'ies' : ''}.`
+                  }
+                </p>
+                {pharmacies.length === 0 && (
+                  <p className="text-xs text-gray-500 mt-0.5">Contact your administrator to get access.</p>
+                )}
+              </>
             )}
           </div>
         </div>
@@ -181,7 +235,53 @@ export default function PharmacyDashboard() {
           {/* Selected Pharmacy Details */}
           {selectedPharmacy && (
             <>
-              {/* Stats Row */}
+              {/* Invoice Analytics */}
+              <div>
+                <h2 className="text-sm font-heading font-semibold text-gray-700 uppercase tracking-wider mb-3">
+                  Invoice Analytics
+                </h2>
+                {loadingStats ? (
+                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+                    {Array.from({ length: 6 }).map((_, i) => (
+                      <div key={i} className="card p-4 animate-pulse">
+                        <div className="h-6 w-12 bg-gray-200 rounded mb-2" />
+                        <div className="h-3 w-20 bg-gray-100 rounded" />
+                      </div>
+                    ))}
+                  </div>
+                ) : invoiceStats ? (
+                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+                    <div className="card p-4">
+                      <div className="text-2xl font-bold text-gray-900">{invoiceStats.totalCount}</div>
+                      <div className="text-xs text-gray-500 mt-0.5">Total Invoices</div>
+                    </div>
+                    <div className="card p-4">
+                      <div className="text-2xl font-bold text-primary-600">
+                        {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(invoiceStats.totalAmount)}
+                      </div>
+                      <div className="text-xs text-gray-500 mt-0.5">Total Amount</div>
+                    </div>
+                    <div className="card p-4">
+                      <div className="text-2xl font-bold text-amber-600">{invoiceStats.statusCounts.DRAFT || 0}</div>
+                      <div className="text-xs text-gray-500 mt-0.5">Draft</div>
+                    </div>
+                    <div className="card p-4">
+                      <div className="text-2xl font-bold text-blue-600">{invoiceStats.statusCounts.SUBMITTED || 0}</div>
+                      <div className="text-xs text-gray-500 mt-0.5">Submitted</div>
+                    </div>
+                    <div className="card p-4">
+                      <div className="text-2xl font-bold text-green-600">{invoiceStats.statusCounts.APPROVED || 0}</div>
+                      <div className="text-xs text-gray-500 mt-0.5">Approved</div>
+                    </div>
+                    <div className="card p-4">
+                      <div className="text-2xl font-bold text-emerald-600">{invoiceStats.statusCounts.PAID || 0}</div>
+                      <div className="text-xs text-gray-500 mt-0.5">Paid</div>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+
+              {/* Pharmacy Info Row */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 <div className="card p-4">
                   <div className="text-xs text-gray-500 font-medium uppercase tracking-wider">Code</div>

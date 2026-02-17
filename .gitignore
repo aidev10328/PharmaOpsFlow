@@ -37,3 +37,5 @@ apps/api/prisma/migrations/*_migration.sql
 # Misc
 *.tgz
 .turbo
+gen-lang-client-*.json
+apps/web/tsconfig.tsbuildinfo

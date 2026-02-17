@@ -229,6 +229,13 @@ export class ChatService {
    * Check if AI is enabled
    */
   isAiEnabled(): boolean {
+    const provider = process.env.AI_PROVIDER || 'openai';
+
+    // Ollama doesn't need an API key - it runs locally
+    if (provider === 'ollama') {
+      return process.env.AI_ENABLED === 'true';
+    }
+
     return (
       process.env.AI_ENABLED === 'true' &&
       !!(process.env.OPENAI_API_KEY || process.env.GEMINI_API_KEY)
@@ -245,6 +252,8 @@ export class ChatService {
       return this.callOpenAI(prompt);
     } else if (provider === 'gemini') {
       return this.callGemini(prompt);
+    } else if (provider === 'ollama') {
+      return this.callOllama(prompt);
     }
 
     throw new BadRequestException(`Unknown AI provider: ${provider}`);
@@ -310,6 +319,36 @@ export class ChatService {
 
     const data = await response.json();
     return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+  }
+
+  private async callOllama(prompt: string): Promise<string> {
+    const baseUrl = process.env.OLLAMA_BASE_URL || 'http://127.0.0.1:11434';
+    const model = process.env.OLLAMA_MODEL || 'llama3.2';
+
+    this.logger.log(`Calling Ollama (${model}) at ${baseUrl}`);
+
+    const response = await fetch(`${baseUrl}/api/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model,
+        prompt,
+        stream: false,
+        options: {
+          temperature: 0.1,
+          num_predict: 1000,
+        },
+      }),
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      this.logger.error(`Ollama API error: ${error}`);
+      throw new BadRequestException('Failed to generate query plan with local LLM');
+    }
+
+    const data = await response.json();
+    return data.response || '';
   }
 
   /**
