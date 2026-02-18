@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useState, useCallback } from 'react';
 import { apiFetch } from '../../../../lib/api';
 import SlaAlertWidget from '../../../../components/sla/SlaAlertWidget';
+import RequirementsWidget from '../../../../components/requirements/RequirementsWidget';
 
 type Pharmacy = {
   id: string;
@@ -25,6 +26,14 @@ type InvoiceStats = {
   statusCounts: Record<string, number>;
 };
 
+type RequirementsSummary = {
+  pending: number;
+  overdue: number;
+  submitted: number;
+  processed: number;
+  totalThisMonth: number;
+};
+
 function formatAddress(p: Pharmacy): string {
   const parts = [p.street, [p.city, p.state].filter(Boolean).join(', '), p.zip].filter(Boolean);
   return parts.join(', ') || 'Not specified';
@@ -38,6 +47,7 @@ export default function PharmacyDashboard() {
   const [selectedPharmacy, setSelectedPharmacy] = useState<Pharmacy | null>(null);
   const [invoiceStats, setInvoiceStats] = useState<InvoiceStats | null>(null);
   const [loadingStats, setLoadingStats] = useState(false);
+  const [requirementsSummary, setRequirementsSummary] = useState<RequirementsSummary | null>(null);
 
   useEffect(() => {
     if (!loading && !user) {
@@ -69,44 +79,77 @@ export default function PharmacyDashboard() {
   }, [user]);
 
   // Fetch invoice stats when selected pharmacy changes
+  // Fetches all invoices by paginating through results (API max limit is 100)
   const fetchInvoiceStats = useCallback(async (pharmacyId: string) => {
     setLoadingStats(true);
     try {
-      const res = await apiFetch(`/invoices?pharmacyId=${pharmacyId}&limit=1000`);
-      if (res.ok) {
+      const allInvoices: any[] = [];
+      let page = 1;
+      let hasMore = true;
+
+      // Paginate through all invoices
+      while (hasMore) {
+        const res = await apiFetch(`/invoices?pharmacyId=${pharmacyId}&limit=100&page=${page}`);
+
+        if (!res.ok) {
+          console.error('fetchInvoiceStats: API error:', res.status);
+          break;
+        }
+
         const data = await res.json();
-        const invoices = Array.isArray(data) ? data : data.data || data.rows || [];
-        const statusCounts: Record<string, number> = {};
-        let totalAmount = 0;
+        const invoices = data.data || [];
+        allInvoices.push(...invoices);
 
-        invoices.forEach((inv: any) => {
-          statusCounts[inv.status] = (statusCounts[inv.status] || 0) + 1;
-          totalAmount += parseFloat(inv.amount) || 0;
-        });
-
-        setInvoiceStats({
-          totalCount: invoices.length,
-          totalAmount,
-          statusCounts,
-        });
-      } else {
-        // Set empty stats if API returns error
-        setInvoiceStats({ totalCount: 0, totalAmount: 0, statusCounts: {} });
+        // Check if there are more pages
+        const pagination = data.pagination;
+        if (pagination && page < pagination.totalPages) {
+          page++;
+        } else {
+          hasMore = false;
+        }
       }
+
+      const statusCounts: Record<string, number> = {};
+      let totalAmount = 0;
+
+      allInvoices.forEach((inv: any) => {
+        statusCounts[inv.status] = (statusCounts[inv.status] || 0) + 1;
+        totalAmount += parseFloat(inv.amount) || 0;
+      });
+
+      setInvoiceStats({
+        totalCount: allInvoices.length,
+        totalAmount,
+        statusCounts,
+      });
     } catch (e) {
       console.error('Failed to fetch invoice stats:', e);
-      // Set empty stats on error
       setInvoiceStats({ totalCount: 0, totalAmount: 0, statusCounts: {} });
     } finally {
       setLoadingStats(false);
     }
   }, []);
 
+  // Fetch requirements summary when selected pharmacy changes
+  const fetchRequirementsSummary = useCallback(async (pharmacyId: string) => {
+    try {
+      const res = await apiFetch(`/v1/requirements/pharmacy/${pharmacyId}/summary`);
+      if (res.ok) {
+        setRequirementsSummary(await res.json());
+      } else {
+        setRequirementsSummary(null);
+      }
+    } catch {
+      setRequirementsSummary(null);
+    }
+  }, []);
+
   useEffect(() => {
     if (selectedPharmacy) {
       fetchInvoiceStats(selectedPharmacy.id);
+      fetchRequirementsSummary(selectedPharmacy.id);
     }
-  }, [selectedPharmacy, fetchInvoiceStats]);
+  }, [selectedPharmacy, fetchInvoiceStats, fetchRequirementsSummary]);
 
   if (loading) {
     return (
@@ -143,46 +186,13 @@ export default function PharmacyDashboard() {
   };
 
   return (
-    <div className="max-w-7xl mx-auto space-y-6">
+    <div className="max-w-7xl mx-auto space-y-3">
       {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="page-title">Pharmacy Dashboard</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Welcome back, {user.firstName || user.email}
-          </p>
-        </div>
-        <span className={`inline-flex items-center px-3 py-1.5 rounded-full text-xs font-semibold ${getRoleBadgeColor(user.role)}`}>
+      <div className="flex items-center justify-between">
+        <h1 className="text-xl font-heading font-bold text-gray-900">Pharmacy Dashboard</h1>
+        <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold ${getRoleBadgeColor(user.role)}`}>
           {user.role.replace('_', ' ')}
         </span>
-      </div>
-
-      {/* Pharmacy Access Info */}
-      <div className="card p-5">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-lg bg-primary-50 flex items-center justify-center flex-shrink-0">
-            <svg className="w-5 h-5 text-primary-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-            </svg>
-          </div>
-          <div>
-            {loadingPharmacies ? (
-              <p className="text-sm font-medium text-gray-500">Loading your pharmacies...</p>
-            ) : (
-              <>
-                <p className="text-sm font-medium text-gray-900">
-                  {pharmacies.length === 0
-                    ? "You don't have access to any pharmacies yet."
-                    : `You have access to ${pharmacies.length} pharmacy${pharmacies.length > 1 ? 'ies' : ''}.`
-                  }
-                </p>
-                {pharmacies.length === 0 && (
-                  <p className="text-xs text-gray-500 mt-0.5">Contact your administrator to get access.</p>
-                )}
-              </>
-            )}
-          </div>
-        </div>
       </div>
 
       {loadingPharmacies ? (
@@ -237,134 +247,116 @@ export default function PharmacyDashboard() {
             <>
               {/* Invoice Analytics */}
               <div>
-                <h2 className="text-sm font-heading font-semibold text-gray-700 uppercase tracking-wider mb-3">
+                <h2 className="text-xs font-heading font-semibold text-gray-500 uppercase tracking-wider mb-2">
                   Invoice Analytics
                 </h2>
                 {loadingStats ? (
-                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-                    {Array.from({ length: 6 }).map((_, i) => (
-                      <div key={i} className="card p-4 animate-pulse">
-                        <div className="h-6 w-12 bg-gray-200 rounded mb-2" />
-                        <div className="h-3 w-20 bg-gray-100 rounded" />
+                  <div className="grid grid-cols-3 md:grid-cols-5 lg:grid-cols-9 gap-2">
+                    {Array.from({ length: 9 }).map((_, i) => (
+                      <div key={i} className="card p-2.5 animate-pulse">
+                        <div className="h-5 w-8 bg-gray-200 rounded mb-1" />
+                        <div className="h-2.5 w-14 bg-gray-100 rounded" />
                       </div>
                     ))}
                   </div>
                 ) : invoiceStats ? (
-                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-                    <div className="card p-4">
-                      <div className="text-2xl font-bold text-gray-900">{invoiceStats.totalCount}</div>
-                      <div className="text-xs text-gray-500 mt-0.5">Total Invoices</div>
-                    </div>
-                    <div className="card p-4">
-                      <div className="text-2xl font-bold text-primary-600">
-                        {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(invoiceStats.totalAmount)}
+                  <>
+                    {/* Alert Banner for Rejected/Needs Info */}
+                    {((invoiceStats.statusCounts.REJECTED || 0) > 0 || (invoiceStats.statusCounts.NEEDS_INFO || 0) > 0) && (
+                      <div className="mb-2 p-2.5 bg-amber-50 border border-amber-200 rounded-lg">
+                        <div className="flex items-center gap-2">
+                          <svg className="w-4 h-4 text-amber-500 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                          </svg>
+                          <span className="text-xs text-amber-800">
+                            {(invoiceStats.statusCounts.REJECTED || 0) > 0 && (
+                              <span className="font-medium">{invoiceStats.statusCounts.REJECTED} rejected</span>
+                            )}
+                            {(invoiceStats.statusCounts.REJECTED || 0) > 0 && (invoiceStats.statusCounts.NEEDS_INFO || 0) > 0 && ', '}
+                            {(invoiceStats.statusCounts.NEEDS_INFO || 0) > 0 && (
+                              <span className="font-medium">{invoiceStats.statusCounts.NEEDS_INFO} need info</span>
+                            )}
+                          </span>
+                          <a
+                            href={`/dashboard/pharmacy/invoices?pharmacyId=${selectedPharmacy?.id}&status=NEEDS_INFO,REJECTED`}
+                            className="ml-auto text-xs font-medium text-amber-700 hover:text-amber-900"
+                          >
+                            View →
+                          </a>
+                        </div>
                       </div>
-                      <div className="text-xs text-gray-500 mt-0.5">Total Amount</div>
+                    )}
+                    <div className="grid grid-cols-3 md:grid-cols-5 lg:grid-cols-9 gap-2">
+                      <div className="card p-2.5">
+                        <div className="text-lg font-bold text-gray-900">{invoiceStats.totalCount}</div>
+                        <div className="text-[10px] text-gray-500">Total</div>
+                      </div>
+                      <div className={`card p-2.5 ${(requirementsSummary?.pending || 0) > 0 ? 'border-orange-200 bg-orange-50' : ''}`}>
+                        <div className={`text-lg font-bold ${(requirementsSummary?.pending || 0) > 0 ? 'text-orange-600' : 'text-gray-400'}`}>
+                          {requirementsSummary?.pending || 0}
+                        </div>
+                        <div className={`text-[10px] ${(requirementsSummary?.pending || 0) > 0 ? 'text-orange-700' : 'text-gray-500'}`}>Pending</div>
+                      </div>
+                      <div className="card p-2.5">
+                        <div className="text-lg font-bold text-amber-600">{invoiceStats.statusCounts.DRAFT || 0}</div>
+                        <div className="text-[10px] text-gray-500">Draft</div>
+                      </div>
+                      <div className="card p-2.5">
+                        <div className="text-lg font-bold text-blue-600">{invoiceStats.statusCounts.SUBMITTED || 0}</div>
+                        <div className="text-[10px] text-gray-500">Submitted</div>
+                      </div>
+                      <div className="card p-2.5 border-yellow-200 bg-yellow-50">
+                        <div className="text-lg font-bold text-yellow-600">{invoiceStats.statusCounts.NEEDS_INFO || 0}</div>
+                        <div className="text-[10px] text-yellow-700">Needs Info</div>
+                      </div>
+                      <div className="card p-2.5">
+                        <div className="text-lg font-bold text-green-600">{invoiceStats.statusCounts.APPROVED || 0}</div>
+                        <div className="text-[10px] text-gray-500">Approved</div>
+                      </div>
+                      <div className="card p-2.5">
+                        <div className="text-lg font-bold text-purple-600">{invoiceStats.statusCounts.SCHEDULED || 0}</div>
+                        <div className="text-[10px] text-gray-500">Scheduled</div>
+                      </div>
+                      <div className="card p-2.5">
+                        <div className="text-lg font-bold text-emerald-600">{invoiceStats.statusCounts.PAID || 0}</div>
+                        <div className="text-[10px] text-gray-500">Paid</div>
+                      </div>
+                      <div className="card p-2.5 border-red-200 bg-red-50">
+                        <div className="text-lg font-bold text-red-600">{invoiceStats.statusCounts.REJECTED || 0}</div>
+                        <div className="text-[10px] text-red-700">Rejected</div>
+                      </div>
                     </div>
-                    <div className="card p-4">
-                      <div className="text-2xl font-bold text-amber-600">{invoiceStats.statusCounts.DRAFT || 0}</div>
-                      <div className="text-xs text-gray-500 mt-0.5">Draft</div>
-                    </div>
-                    <div className="card p-4">
-                      <div className="text-2xl font-bold text-blue-600">{invoiceStats.statusCounts.SUBMITTED || 0}</div>
-                      <div className="text-xs text-gray-500 mt-0.5">Submitted</div>
-                    </div>
-                    <div className="card p-4">
-                      <div className="text-2xl font-bold text-green-600">{invoiceStats.statusCounts.APPROVED || 0}</div>
-                      <div className="text-xs text-gray-500 mt-0.5">Approved</div>
-                    </div>
-                    <div className="card p-4">
-                      <div className="text-2xl font-bold text-emerald-600">{invoiceStats.statusCounts.PAID || 0}</div>
-                      <div className="text-xs text-gray-500 mt-0.5">Paid</div>
-                    </div>
-                  </div>
+                  </>
                 ) : null}
               </div>
 
               {/* Pharmacy Info Row */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                <div className="card p-4">
-                  <div className="text-xs text-gray-500 font-medium uppercase tracking-wider">Code</div>
-                  <div className="text-lg font-bold font-mono text-primary-600 mt-1">{selectedPharmacy.code}</div>
+              <div className="grid grid-cols-4 gap-2">
+                <div className="card p-2.5">
+                  <div className="text-[10px] text-gray-500 font-medium uppercase tracking-wider">Code</div>
+                  <div className="text-base font-bold font-mono text-primary-600">{selectedPharmacy.code}</div>
                 </div>
-                <div className="card p-4">
-                  <div className="text-xs text-gray-500 font-medium uppercase tracking-wider">Name</div>
-                  <div className="text-lg font-bold text-gray-900 mt-1 truncate">{selectedPharmacy.name}</div>
+                <div className="card p-2.5">
+                  <div className="text-[10px] text-gray-500 font-medium uppercase tracking-wider">Name</div>
+                  <div className="text-base font-bold text-gray-900 truncate">{selectedPharmacy.name}</div>
                 </div>
-                <div className="card p-4">
-                  <div className="text-xs text-gray-500 font-medium uppercase tracking-wider">Status</div>
-                  <div className="flex items-center gap-2 mt-1">
-                    <span className="w-2 h-2 rounded-full bg-emerald-500" />
-                    <span className="text-lg font-bold text-emerald-600">Active</span>
+                <div className="card p-2.5">
+                  <div className="text-[10px] text-gray-500 font-medium uppercase tracking-wider">Status</div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                    <span className="text-base font-bold text-emerald-600">Active</span>
                   </div>
                 </div>
-                <div className="card p-4">
-                  <div className="text-xs text-gray-500 font-medium uppercase tracking-wider">Your Role</div>
-                  <div className="text-lg font-bold text-primary-600 mt-1 truncate">{getMemberRole(selectedPharmacy)}</div>
+                <div className="card p-2.5">
+                  <div className="text-[10px] text-gray-500 font-medium uppercase tracking-wider">Your Role</div>
+                  <div className="text-base font-bold text-primary-600 truncate">{getMemberRole(selectedPharmacy)}</div>
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                {/* Pharmacy Details & Quick Actions */}
-                <div className="lg:col-span-2 card p-5">
-                  <h3 className="text-sm font-heading font-semibold text-gray-900 mb-4">
-                    Pharmacy Details
-                  </h3>
-                  <dl className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <dt className="text-xs font-medium text-gray-500 uppercase tracking-wider">Address</dt>
-                      <dd className="mt-1 text-sm text-gray-900">{formatAddress(selectedPharmacy)}</dd>
-                    </div>
-                    <div>
-                      <dt className="text-xs font-medium text-gray-500 uppercase tracking-wider">Phone</dt>
-                      <dd className="mt-1 text-sm text-gray-900">{selectedPharmacy.phone || 'Not specified'}</dd>
-                    </div>
-                    <div>
-                      <dt className="text-xs font-medium text-gray-500 uppercase tracking-wider">Email</dt>
-                      <dd className="mt-1 text-sm text-gray-900">
-                        {selectedPharmacy.members && selectedPharmacy.members.length > 0
-                          ? selectedPharmacy.members[0].user.email
-                          : 'Not specified'}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt className="text-xs font-medium text-gray-500 uppercase tracking-wider">Organization</dt>
-                      <dd className="mt-1 text-sm text-gray-900">{selectedPharmacy.org?.name || '-'}</dd>
-                    </div>
-                  </dl>
-
-                  <div className="mt-5 pt-5 border-t border-gray-100">
-                    <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Quick Actions</h4>
-                    <div className="flex flex-wrap gap-2">
-                      <a
-                        href={`/dashboard/pharmacy/invoices?pharmacyId=${selectedPharmacy.id}`}
-                        className="btn-primary text-sm"
-                      >
-                        View Invoices
-                      </a>
-                      <a
-                        href={`/dashboard/pharmacy/invoices/new?pharmacyId=${selectedPharmacy.id}`}
-                        className="btn-secondary text-sm"
-                      >
-                        Create Invoice
-                      </a>
-                      <a
-                        href="/dashboard/pharmacy/invoices/upload"
-                        className="btn-accent text-sm gap-1.5"
-                      >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
-                        </svg>
-                        Upload Invoice
-                      </a>
-                    </div>
-                  </div>
-                </div>
-
-                {/* SLA Status Widget */}
-                <div className="lg:col-span-1">
-                  <SlaAlertWidget pharmacyId={selectedPharmacy.id} />
-                </div>
+              {/* Requirements & SLA Widgets */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                <RequirementsWidget pharmacyId={selectedPharmacy.id} />
+                <SlaAlertWidget pharmacyId={selectedPharmacy.id} />
               </div>
             </>
           )}

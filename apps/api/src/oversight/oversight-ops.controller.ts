@@ -20,7 +20,7 @@ import {
 
 @Controller('v1/admin/oversight')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.ADMIN)
+@Roles(Role.ADMIN, Role.COMPANY_MANAGER)
 export class OversightOpsController {
   constructor(private readonly oversightService: OversightService) {}
 

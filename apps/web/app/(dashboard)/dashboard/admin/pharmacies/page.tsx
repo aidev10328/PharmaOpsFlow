@@ -196,13 +196,13 @@ export default function AdminPharmaciesPage() {
 
   if (loading || loadingData) {
     return (
-      <div className="flex items-center justify-center py-20">
-        <div className="flex items-center gap-3 text-gray-500">
-          <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
+      <div className="flex items-center justify-center py-12">
+        <div className="flex items-center gap-2 text-gray-400">
+          <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
           </svg>
-          <span className="text-sm font-medium">Loading...</span>
+          <span className="text-sm">Loading...</span>
         </div>
       </div>
     );
@@ -211,232 +211,111 @@ export default function AdminPharmaciesPage() {
   if (!user || user.role !== 'ADMIN') return null;
 
   return (
-    <div className="max-w-6xl mx-auto space-y-6">
-      <div>
-        <Link href="/dashboard/admin" className="text-link text-sm">
-          &larr; Back to Admin
-        </Link>
-      </div>
-
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <h1 className="page-title">Pharmacy Management</h1>
-        <button onClick={() => { setShowCreate(!showCreate); setError(null); setSuccess(null); }} className="btn-primary">
-          {showCreate ? 'Cancel' : 'Create Pharmacy'}
+    <div className="max-w-6xl mx-auto space-y-3">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-lg font-heading font-bold text-gray-900">Pharmacies</h1>
+          <p className="text-xs text-gray-500">{pharmacies.length} total</p>
+        </div>
+        <button onClick={() => { setShowCreate(!showCreate); setError(null); setSuccess(null); }} className="btn-primary text-xs px-3 py-1.5">
+          {showCreate ? 'Cancel' : '+ Add Pharmacy'}
         </button>
       </div>
 
-      {error && <div className="alert-error">{error}</div>}
-      {success && <div className="alert-success">{success}</div>}
+      {error && <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded text-xs">{error}</div>}
+      {success && <div className="bg-green-50 border border-green-200 text-green-700 px-3 py-2 rounded text-xs">{success}</div>}
 
       {/* Create Form */}
       {showCreate && (
-        <div className="card p-5">
-          <h3 className="text-sm font-heading font-semibold text-gray-900 mb-4">New Pharmacy</h3>
-          <form onSubmit={handleCreate} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="card p-3">
+          <h3 className="text-xs font-semibold text-gray-900 mb-2">New Pharmacy</h3>
+          <form onSubmit={handleCreate} className="grid grid-cols-2 md:grid-cols-4 gap-2">
             <div>
-              <label className="field-label">Name <span className="text-red-500">*</span></label>
-              <input
-                type="text"
-                value={createForm.name}
-                onChange={e => setCreateForm(f => ({ ...f, name: e.target.value }))}
-                className="input-field"
-                required
-              />
+              <label className="block text-[10px] font-medium text-gray-700 mb-0.5">Name *</label>
+              <input type="text" value={createForm.name} onChange={e => setCreateForm(f => ({ ...f, name: e.target.value }))} className="input-field text-xs py-1.5" required />
             </div>
             <div>
-              <label className="field-label">Code <span className="text-red-500">*</span></label>
-              <input
-                type="text"
-                value={createForm.code}
-                onChange={e => setCreateForm(f => ({ ...f, code: e.target.value.toUpperCase() }))}
-                className="input-field font-mono"
-                maxLength={20}
-                required
-              />
-              <p className="field-hint">Unique identifier (e.g., ELM, BBP). Immutable after creation.</p>
+              <label className="block text-[10px] font-medium text-gray-700 mb-0.5">Code *</label>
+              <input type="text" value={createForm.code} onChange={e => setCreateForm(f => ({ ...f, code: e.target.value.toUpperCase() }))} className="input-field text-xs py-1.5 font-mono" maxLength={20} required />
             </div>
             <div>
-              <label className="field-label">Phone</label>
-              <input
-                type="tel"
-                value={createForm.phone}
-                onChange={e => setCreateForm(f => ({ ...f, phone: e.target.value }))}
-                className="input-field"
-                placeholder="(555) 123-4567"
-              />
-            </div>
-            <div className="md:col-span-2 lg:col-span-3">
-              <label className="field-label">Street Address</label>
-              <input
-                type="text"
-                value={createForm.street}
-                onChange={e => setCreateForm(f => ({ ...f, street: e.target.value }))}
-                className="input-field"
-                placeholder="123 Main Street"
-              />
+              <label className="block text-[10px] font-medium text-gray-700 mb-0.5">Phone</label>
+              <input type="tel" value={createForm.phone} onChange={e => setCreateForm(f => ({ ...f, phone: e.target.value }))} className="input-field text-xs py-1.5" />
             </div>
             <div>
-              <label className="field-label">City</label>
-              <input
-                type="text"
-                value={createForm.city}
-                onChange={e => setCreateForm(f => ({ ...f, city: e.target.value }))}
-                className="input-field"
-              />
+              <label className="block text-[10px] font-medium text-gray-700 mb-0.5">City</label>
+              <input type="text" value={createForm.city} onChange={e => setCreateForm(f => ({ ...f, city: e.target.value }))} className="input-field text-xs py-1.5" />
             </div>
             <div>
-              <label className="field-label">State</label>
-              <select
-                value={createForm.state}
-                onChange={e => setCreateForm(f => ({ ...f, state: e.target.value }))}
-                className="input-field"
-              >
-                <option value="">Select state...</option>
-                {US_STATES.map(s => (
-                  <option key={s} value={s}>{s}</option>
-                ))}
+              <label className="block text-[10px] font-medium text-gray-700 mb-0.5">State</label>
+              <select value={createForm.state} onChange={e => setCreateForm(f => ({ ...f, state: e.target.value }))} className="input-field text-xs py-1.5">
+                <option value="">Select...</option>
+                {US_STATES.map(s => <option key={s} value={s}>{s}</option>)}
               </select>
             </div>
             <div>
-              <label className="field-label">ZIP Code</label>
-              <input
-                type="text"
-                value={createForm.zip}
-                onChange={e => setCreateForm(f => ({ ...f, zip: e.target.value }))}
-                className="input-field font-mono"
-                maxLength={10}
-                placeholder="10001"
-              />
+              <label className="block text-[10px] font-medium text-gray-700 mb-0.5">ZIP</label>
+              <input type="text" value={createForm.zip} onChange={e => setCreateForm(f => ({ ...f, zip: e.target.value }))} className="input-field text-xs py-1.5 font-mono" maxLength={10} />
             </div>
             <div>
-              <label className="field-label">Website</label>
-              <input
-                type="url"
-                value={createForm.website}
-                onChange={e => setCreateForm(f => ({ ...f, website: e.target.value }))}
-                className="input-field"
-                placeholder="https://www.example.com"
-              />
-            </div>
-            <div>
-              <label className="field-label">Timezone</label>
-              <select
-                value={createForm.timezone}
-                onChange={e => setCreateForm(f => ({ ...f, timezone: e.target.value }))}
-                className="input-field"
-              >
-                <option value="">Default (America/New_York)</option>
+              <label className="block text-[10px] font-medium text-gray-700 mb-0.5">Timezone</label>
+              <select value={createForm.timezone} onChange={e => setCreateForm(f => ({ ...f, timezone: e.target.value }))} className="input-field text-xs py-1.5">
+                <option value="">Default (ET)</option>
                 <option value="America/New_York">Eastern</option>
                 <option value="America/Chicago">Central</option>
                 <option value="America/Denver">Mountain</option>
                 <option value="America/Los_Angeles">Pacific</option>
               </select>
             </div>
-            <div className="md:col-span-2 lg:col-span-3 flex justify-end">
-              <button type="submit" disabled={creating} className="btn-primary">
-                {creating ? 'Creating...' : 'Create Pharmacy'}
-              </button>
+            <div className="flex items-end">
+              <button type="submit" disabled={creating} className="btn-accent text-xs px-3 py-1.5">{creating ? 'Creating...' : 'Create'}</button>
             </div>
           </form>
         </div>
       )}
 
-      {/* Edit Form (shown above table when editing) */}
+      {/* Edit Form */}
       {editingId && (
-        <div className="card p-5">
-          <h3 className="text-sm font-heading font-semibold text-gray-900 mb-4">
-            Edit Pharmacy: {pharmacies.find(p => p.id === editingId)?.code}
-          </h3>
-          <form onSubmit={handleEdit} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="card p-3">
+          <h3 className="text-xs font-semibold text-gray-900 mb-2">Edit: {pharmacies.find(p => p.id === editingId)?.code}</h3>
+          <form onSubmit={handleEdit} className="grid grid-cols-2 md:grid-cols-4 gap-2">
             <div>
-              <label className="field-label">Name</label>
-              <input
-                type="text"
-                value={editForm.name}
-                onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))}
-                className="input-field"
-              />
+              <label className="block text-[10px] font-medium text-gray-700 mb-0.5">Name</label>
+              <input type="text" value={editForm.name} onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))} className="input-field text-xs py-1.5" />
             </div>
             <div>
-              <label className="field-label">Phone</label>
-              <input
-                type="tel"
-                value={editForm.phone}
-                onChange={e => setEditForm(f => ({ ...f, phone: e.target.value }))}
-                className="input-field"
-              />
+              <label className="block text-[10px] font-medium text-gray-700 mb-0.5">Phone</label>
+              <input type="tel" value={editForm.phone} onChange={e => setEditForm(f => ({ ...f, phone: e.target.value }))} className="input-field text-xs py-1.5" />
             </div>
             <div>
-              <label className="field-label">Website</label>
-              <input
-                type="url"
-                value={editForm.website}
-                onChange={e => setEditForm(f => ({ ...f, website: e.target.value }))}
-                className="input-field"
-              />
-            </div>
-            <div className="md:col-span-2 lg:col-span-3">
-              <label className="field-label">Street Address</label>
-              <input
-                type="text"
-                value={editForm.street}
-                onChange={e => setEditForm(f => ({ ...f, street: e.target.value }))}
-                className="input-field"
-              />
+              <label className="block text-[10px] font-medium text-gray-700 mb-0.5">City</label>
+              <input type="text" value={editForm.city} onChange={e => setEditForm(f => ({ ...f, city: e.target.value }))} className="input-field text-xs py-1.5" />
             </div>
             <div>
-              <label className="field-label">City</label>
-              <input
-                type="text"
-                value={editForm.city}
-                onChange={e => setEditForm(f => ({ ...f, city: e.target.value }))}
-                className="input-field"
-              />
-            </div>
-            <div>
-              <label className="field-label">State</label>
-              <select
-                value={editForm.state}
-                onChange={e => setEditForm(f => ({ ...f, state: e.target.value }))}
-                className="input-field"
-              >
-                <option value="">Select state...</option>
-                {US_STATES.map(s => (
-                  <option key={s} value={s}>{s}</option>
-                ))}
+              <label className="block text-[10px] font-medium text-gray-700 mb-0.5">State</label>
+              <select value={editForm.state} onChange={e => setEditForm(f => ({ ...f, state: e.target.value }))} className="input-field text-xs py-1.5">
+                <option value="">Select...</option>
+                {US_STATES.map(s => <option key={s} value={s}>{s}</option>)}
               </select>
             </div>
             <div>
-              <label className="field-label">ZIP Code</label>
-              <input
-                type="text"
-                value={editForm.zip}
-                onChange={e => setEditForm(f => ({ ...f, zip: e.target.value }))}
-                className="input-field font-mono"
-                maxLength={10}
-              />
+              <label className="block text-[10px] font-medium text-gray-700 mb-0.5">ZIP</label>
+              <input type="text" value={editForm.zip} onChange={e => setEditForm(f => ({ ...f, zip: e.target.value }))} className="input-field text-xs py-1.5 font-mono" maxLength={10} />
             </div>
             <div>
-              <label className="field-label">Timezone</label>
-              <select
-                value={editForm.timezone}
-                onChange={e => setEditForm(f => ({ ...f, timezone: e.target.value }))}
-                className="input-field"
-              >
-                <option value="">Default (America/New_York)</option>
+              <label className="block text-[10px] font-medium text-gray-700 mb-0.5">Timezone</label>
+              <select value={editForm.timezone} onChange={e => setEditForm(f => ({ ...f, timezone: e.target.value }))} className="input-field text-xs py-1.5">
+                <option value="">Default (ET)</option>
                 <option value="America/New_York">Eastern</option>
                 <option value="America/Chicago">Central</option>
                 <option value="America/Denver">Mountain</option>
                 <option value="America/Los_Angeles">Pacific</option>
               </select>
             </div>
-            <div className="md:col-span-2 lg:col-span-3 flex justify-end gap-2">
-              <button type="button" onClick={() => setEditingId(null)} className="btn-ghost text-xs">
-                Cancel
-              </button>
-              <button type="submit" disabled={saving} className="btn-primary">
-                {saving ? 'Saving...' : 'Save Changes'}
-              </button>
+            <div className="col-span-2 flex items-end gap-1">
+              <button type="submit" disabled={saving} className="text-[10px] px-2 py-1 rounded bg-green-500 text-white font-medium">{saving ? '...' : 'Save'}</button>
+              <button type="button" onClick={() => setEditingId(null)} className="text-[10px] px-2 py-1 rounded bg-gray-100 text-gray-600 font-medium">Cancel</button>
             </div>
           </form>
         </div>
@@ -444,83 +323,53 @@ export default function AdminPharmaciesPage() {
 
       {/* Pharmacies Table */}
       <div className="card overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Code</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden md:table-cell">Location</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden lg:table-cell">Phone</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Members</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+        <table className="min-w-full text-xs">
+          <thead className="bg-gray-50">
+            <tr>
+              <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase">Code</th>
+              <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase">Name</th>
+              <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase hidden md:table-cell">Location</th>
+              <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase hidden lg:table-cell">Phone</th>
+              <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase">Status</th>
+              <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase">Members</th>
+              <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase">Actions</th>
+            </tr>
+          </thead>
+          <tbody className="bg-white divide-y divide-gray-100">
+            {pharmacies.length === 0 ? (
+              <tr><td colSpan={7} className="px-3 py-6 text-center text-gray-400">No pharmacies found</td></tr>
+            ) : pharmacies.map((pharmacy) => (
+              <tr key={pharmacy.id} className="hover:bg-gray-50">
+                <td className="px-3 py-2 font-mono text-gray-900">{pharmacy.code}</td>
+                <td className="px-3 py-2 text-gray-900">{pharmacy.name}</td>
+                <td className="px-3 py-2 text-gray-600 hidden md:table-cell" title={formatFullAddress(pharmacy)}>{formatLocation(pharmacy)}</td>
+                <td className="px-3 py-2 text-gray-600 hidden lg:table-cell">{pharmacy.phone || '-'}</td>
+                <td className="px-3 py-2">
+                  {pharmacy.isActive ? (
+                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700">
+                      <span className="w-1 h-1 rounded-full bg-emerald-500" />Active
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-gray-100 text-gray-600">
+                      <span className="w-1 h-1 rounded-full bg-gray-400" />Inactive
+                    </span>
+                  )}
+                </td>
+                <td className="px-3 py-2 text-gray-600">
+                  <Link href={`/dashboard/admin/pharmacies/${pharmacy.id}/members`} className="text-primary-600 hover:underline">{pharmacy._count.members}</Link>
+                </td>
+                <td className="px-3 py-2">
+                  <div className="flex items-center gap-1">
+                    <button onClick={() => startEdit(pharmacy)} className="text-[10px] px-1.5 py-0.5 rounded hover:bg-gray-100 text-gray-600">Edit</button>
+                    <button onClick={() => toggleActive(pharmacy)} className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${pharmacy.isActive ? 'text-red-600 hover:bg-red-50' : 'text-emerald-600 hover:bg-emerald-50'}`}>
+                      {pharmacy.isActive ? 'Disable' : 'Enable'}
+                    </button>
+                  </div>
+                </td>
               </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {pharmacies.length === 0 ? (
-                <tr>
-                  <td colSpan={7} className="px-4 py-8 text-center text-sm text-gray-500">
-                    No pharmacies found. Create one above.
-                  </td>
-                </tr>
-              ) : pharmacies.map((pharmacy) => (
-                <tr key={pharmacy.id} className={`hover:bg-gray-50 ${editingId === pharmacy.id ? 'bg-blue-50' : ''}`}>
-                  <td className="px-4 py-3 text-sm font-mono text-gray-900">{pharmacy.code}</td>
-                  <td className="px-4 py-3 text-sm font-medium text-gray-900">
-                    {pharmacy.name}
-                    {pharmacy.website && (
-                      <a href={pharmacy.website} target="_blank" rel="noopener noreferrer" className="text-link text-xs ml-2">
-                        www
-                      </a>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-sm text-gray-500 hidden md:table-cell" title={formatFullAddress(pharmacy)}>
-                    {formatLocation(pharmacy)}
-                  </td>
-                  <td className="px-4 py-3 text-sm text-gray-500 hidden lg:table-cell">
-                    {pharmacy.phone || '-'}
-                  </td>
-                  <td className="px-4 py-3 text-sm">
-                    {pharmacy.isActive ? (
-                      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700">
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                        Active
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-semibold bg-gray-100 text-gray-600">
-                        <span className="w-1.5 h-1.5 rounded-full bg-gray-400" />
-                        Inactive
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-sm text-gray-600">
-                    <Link href={`/dashboard/admin/pharmacies/${pharmacy.id}/members`} className="text-link">
-                      {pharmacy._count.members} member{pharmacy._count.members !== 1 ? 's' : ''}
-                    </Link>
-                  </td>
-                  <td className="px-4 py-3 text-sm">
-                    <div className="flex items-center gap-2">
-                      <button onClick={() => startEdit(pharmacy)} className="btn-ghost text-xs">
-                        Edit
-                      </button>
-                      <button
-                        onClick={() => toggleActive(pharmacy)}
-                        className={`text-xs px-2 py-1 rounded-md font-medium ${
-                          pharmacy.isActive
-                            ? 'text-red-600 hover:bg-red-50'
-                            : 'text-emerald-600 hover:bg-emerald-50'
-                        }`}
-                      >
-                        {pharmacy.isActive ? 'Deactivate' : 'Reactivate'}
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+            ))}
+          </tbody>
+        </table>
       </div>
     </div>
   );

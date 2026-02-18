@@ -12,6 +12,7 @@ import {
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
+import { Public } from '../common/decorators/public.decorator';
 import { Role } from '../common/enums/role.enum';
 import { ChatService } from './chat.service';
 import { ChatPlanRequestDto, ChatExecuteRequestDto } from './dto/chat.dto';
@@ -25,9 +26,10 @@ export class ChatController {
   constructor(private readonly chatService: ChatService) {}
 
   /**
-   * Check if chat is enabled
+   * Check if chat is enabled (public endpoint)
    */
   @Get('status')
+  @Public()
   getStatus() {
     return {
       enabled: this.chatService.isAiEnabled(),

@@ -2,11 +2,16 @@
 
 import { useAuth } from '../../../../../../components/AuthProvider';
 import { useRouter } from 'next/navigation';
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { apiFetch } from '../../../../../../lib/api';
 import Link from 'next/link';
 
 type Pharmacy = { id: string; name: string; code: string };
+
+type SortConfig = {
+  field: string;
+  direction: 'asc' | 'desc';
+};
 
 const EVENT_TYPE_COLORS: Record<string, string> = {
   SUBMISSION_MISSED: 'bg-red-50 text-red-700',
@@ -14,6 +19,35 @@ const EVENT_TYPE_COLORS: Record<string, string> = {
   SUBMISSION_REMINDER_SENT: 'bg-blue-50 text-blue-700',
   PROCESSING_REMINDER_SENT: 'bg-blue-50 text-blue-700',
 };
+
+function SortableHeader({
+  label,
+  field,
+  sortConfig,
+  onSort,
+  className = ''
+}: {
+  label: string;
+  field: string;
+  sortConfig: SortConfig;
+  onSort: (field: string) => void;
+  className?: string;
+}) {
+  const isActive = sortConfig.field === field;
+  return (
+    <th
+      className={`px-3 py-2 text-left font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100 select-none ${className}`}
+      onClick={() => onSort(field)}
+    >
+      <div className="flex items-center gap-1">
+        {label}
+        <span className={`text-[10px] ${isActive ? 'text-primary-600' : 'text-gray-300'}`}>
+          {isActive ? (sortConfig.direction === 'asc' ? '▲' : '▼') : '▼'}
+        </span>
+      </div>
+    </th>
+  );
+}
 
 export default function SlaOversightPage() {
   const { user, loading } = useAuth();
@@ -34,13 +68,21 @@ export default function SlaOversightPage() {
   const [loadingData, setLoadingData] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Sorting state for pharmacy compliance table
+  const [pharmacySort, setPharmacySort] = useState<SortConfig>({ field: 'pharmacyName', direction: 'asc' });
+  const [pharmacyPage, setPharmacyPage] = useState(1);
+  const pharmacyPageSize = 10;
+
+  // Sorting state for events table
+  const [eventsSort, setEventsSort] = useState<SortConfig>({ field: 'createdAt', direction: 'desc' });
+
   useEffect(() => {
     if (!loading && !user) { router.push('/login'); return; }
-    if (!loading && user && user.role !== 'ADMIN') { router.push('/dashboard'); return; }
+    if (!loading && user && !['ADMIN', 'COMPANY_MANAGER'].includes(user.role)) { router.push('/dashboard'); return; }
   }, [user, loading, router]);
 
   useEffect(() => {
-    if (user?.role === 'ADMIN') {
+    if (user?.role && ['ADMIN', 'COMPANY_MANAGER'].includes(user.role)) {
       apiFetch('/v1/admin/pharmacies').then(r => r.ok ? r.json() : []).then(ps =>
         setPharmacies(ps.map((p: any) => ({ id: p.id, name: p.name, code: p.code })))
       );
@@ -58,7 +100,7 @@ export default function SlaOversightPage() {
     try {
       const params = new URLSearchParams();
       params.set('page', String(p));
-      params.set('limit', '20');
+      params.set('limit', '10');
       params.set('month', monthFilter);
       if (pharmacyFilter) params.set('pharmacyId', pharmacyFilter);
       if (eventTypeFilter) params.set('eventType', eventTypeFilter);
@@ -74,121 +116,172 @@ export default function SlaOversightPage() {
   }, [monthFilter, pharmacyFilter, eventTypeFilter]);
 
   useEffect(() => {
-    if (user?.role === 'ADMIN') {
+    if (user?.role && ['ADMIN', 'COMPANY_MANAGER'].includes(user.role)) {
       setLoadingData(true);
+      setPharmacyPage(1);
       Promise.all([fetchSummary(), fetchEvents(1)]).finally(() => setLoadingData(false));
     }
   }, [user, fetchSummary, fetchEvents]);
 
+  const handlePharmacySort = (field: string) => {
+    setPharmacySort(prev => ({
+      field,
+      direction: prev.field === field && prev.direction === 'asc' ? 'desc' : 'asc'
+    }));
+    setPharmacyPage(1);
+  };
+
+  const handleEventsSort = (field: string) => {
+    setEventsSort(prev => ({
+      field,
+      direction: prev.field === field && prev.direction === 'asc' ? 'desc' : 'asc'
+    }));
+  };
+
+  // Sort and paginate pharmacy data
+  const sortedPharmacyData = useMemo(() => {
+    const data = [...(summary?.pharmacies || [])];
+    data.sort((a: any, b: any) => {
+      let aVal = a[pharmacySort.field];
+      let bVal = b[pharmacySort.field];
+      if (typeof aVal === 'string') aVal = aVal.toLowerCase();
+      if (typeof bVal === 'string') bVal = bVal.toLowerCase();
+      if (aVal < bVal) return pharmacySort.direction === 'asc' ? -1 : 1;
+      if (aVal > bVal) return pharmacySort.direction === 'asc' ? 1 : -1;
+      return 0;
+    });
+    return data;
+  }, [summary?.pharmacies, pharmacySort]);
+
+  const paginatedPharmacyData = useMemo(() => {
+    const start = (pharmacyPage - 1) * pharmacyPageSize;
+    return sortedPharmacyData.slice(start, start + pharmacyPageSize);
+  }, [sortedPharmacyData, pharmacyPage]);
+
+  const pharmacyTotalPages = Math.ceil(sortedPharmacyData.length / pharmacyPageSize);
+
+  // Sort events data (client-side for displayed data)
+  const sortedEvents = useMemo(() => {
+    const data = [...slaEvents];
+    data.sort((a: any, b: any) => {
+      let aVal = eventsSort.field === 'createdAt' ? new Date(a.createdAt).getTime() :
+                 eventsSort.field === 'pharmacy' ? a.pharmacy?.name || '' : a[eventsSort.field];
+      let bVal = eventsSort.field === 'createdAt' ? new Date(b.createdAt).getTime() :
+                 eventsSort.field === 'pharmacy' ? b.pharmacy?.name || '' : b[eventsSort.field];
+      if (typeof aVal === 'string') aVal = aVal.toLowerCase();
+      if (typeof bVal === 'string') bVal = bVal.toLowerCase();
+      if (aVal < bVal) return eventsSort.direction === 'asc' ? -1 : 1;
+      if (aVal > bVal) return eventsSort.direction === 'asc' ? 1 : -1;
+      return 0;
+    });
+    return data;
+  }, [slaEvents, eventsSort]);
+
   if (loading || loadingData) {
     return (
-      <div className="flex items-center justify-center py-20">
-        <div className="flex items-center gap-3 text-gray-500">
-          <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
+      <div className="flex items-center justify-center py-12">
+        <div className="flex items-center gap-2 text-gray-400">
+          <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
           </svg>
-          <span className="text-sm font-medium">Loading...</span>
+          <span className="text-sm">Loading...</span>
         </div>
       </div>
     );
   }
 
-  if (!user || user.role !== 'ADMIN') return null;
+  if (!user || !['ADMIN', 'COMPANY_MANAGER'].includes(user.role)) return null;
 
   const totals = summary?.totals || {};
-  const pharmacyData = summary?.pharmacies || [];
 
   return (
-    <div className="max-w-7xl mx-auto space-y-6">
-      <div>
-        <Link href="/dashboard/admin/oversight" className="text-link text-sm">&larr; Back to Oversight</Link>
-      </div>
-
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+    <div className="max-w-6xl mx-auto space-y-3">
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <div>
-          <h1 className="page-title">SLA & Compliance Oversight</h1>
-          <p className="text-sm text-gray-500 mt-1">Monthly submission and processing compliance tracking</p>
+          <h1 className="text-lg font-heading font-bold text-gray-900">SLA & Compliance Oversight</h1>
+          <p className="text-xs text-gray-500">Monthly submission and processing compliance tracking</p>
         </div>
-        <div className="flex items-center gap-3">
-          <Link href="/dashboard/admin/requirements/compliance" className="btn-secondary text-sm">
-            New Requirements System
+        <div className="flex items-center gap-1.5">
+          <Link href="/dashboard/admin/requirements/compliance" className="text-xs px-3 py-1.5 rounded-md border border-gray-200 bg-white text-gray-700 font-medium hover:bg-gray-50 hover:border-gray-300 transition-colors shadow-sm">
+            Requirements
           </Link>
           <input
             type="month"
             value={monthFilter}
             onChange={e => setMonthFilter(e.target.value)}
-            className="input-field w-auto text-sm"
+            className="input-field text-xs py-1.5 w-36"
           />
         </div>
       </div>
 
-      {error && <div className="alert-error">{error}</div>}
+      {error && <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded text-xs">{error}</div>}
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="card p-4 text-center">
-          <div className="text-2xl font-bold text-gray-900">{totals.totalPharmacies || 0}</div>
-          <div className="text-xs text-gray-500 mt-1">Total Pharmacies</div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+        <div className="card p-2.5 text-center">
+          <div className="text-lg font-bold text-gray-900">{totals.totalPharmacies || 0}</div>
+          <div className="text-[10px] text-gray-500">Total Pharmacies</div>
         </div>
-        <div className="card p-4 text-center">
-          <div className="text-2xl font-bold text-emerald-600">{totals.compliantPharmacies || 0}</div>
-          <div className="text-xs text-gray-500 mt-1">Compliant</div>
+        <div className="card p-2.5 text-center">
+          <div className="text-lg font-bold text-emerald-600">{totals.compliantPharmacies || 0}</div>
+          <div className="text-[10px] text-gray-500">Compliant</div>
         </div>
-        <div className="card p-4 text-center">
-          <div className="text-2xl font-bold text-red-600">{(totals.totalPharmacies || 0) - (totals.compliantPharmacies || 0)}</div>
-          <div className="text-xs text-gray-500 mt-1">Non-Compliant</div>
+        <div className="card p-2.5 text-center">
+          <div className="text-lg font-bold text-red-600">{(totals.totalPharmacies || 0) - (totals.compliantPharmacies || 0)}</div>
+          <div className="text-[10px] text-gray-500">Non-Compliant</div>
         </div>
-        <div className="card p-4 text-center">
-          <div className={`text-2xl font-bold ${totals.totalPharmacies > 0 ? (totals.compliantPharmacies / totals.totalPharmacies >= 0.9 ? 'text-emerald-600' : totals.compliantPharmacies / totals.totalPharmacies >= 0.7 ? 'text-amber-600' : 'text-red-600') : 'text-gray-400'}`}>
+        <div className="card p-2.5 text-center">
+          <div className={`text-lg font-bold ${totals.totalPharmacies > 0 ? (totals.compliantPharmacies / totals.totalPharmacies >= 0.9 ? 'text-emerald-600' : totals.compliantPharmacies / totals.totalPharmacies >= 0.7 ? 'text-amber-600' : 'text-red-600') : 'text-gray-400'}`}>
             {totals.totalPharmacies > 0 ? Math.round((totals.compliantPharmacies / totals.totalPharmacies) * 100) : 0}%
           </div>
-          <div className="text-xs text-gray-500 mt-1">Compliance Rate</div>
+          <div className="text-[10px] text-gray-500">Compliance Rate</div>
         </div>
       </div>
 
       {/* Pharmacy Compliance Table */}
       <div className="card overflow-hidden">
-        <div className="px-4 py-3 bg-gray-50 border-b">
-          <h3 className="text-sm font-heading font-semibold text-gray-900">Pharmacy Compliance — {monthFilter}</h3>
+        <div className="px-3 py-2 bg-gray-50 border-b flex items-center justify-between">
+          <h3 className="text-xs font-heading font-semibold text-gray-900">Pharmacy Compliance — {monthFilter}</h3>
+          <span className="text-[10px] text-gray-500">{sortedPharmacyData.length} pharmacies</span>
         </div>
         <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
+          <table className="min-w-full text-xs">
             <thead className="bg-gray-50">
               <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Pharmacy</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Code</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Expected</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Submitted</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Processed</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Compliance</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Submission</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Processing</th>
+                <SortableHeader label="Pharmacy" field="pharmacyName" sortConfig={pharmacySort} onSort={handlePharmacySort} />
+                <SortableHeader label="Code" field="pharmacyCode" sortConfig={pharmacySort} onSort={handlePharmacySort} className="hidden sm:table-cell" />
+                <SortableHeader label="Expected" field="totalExpected" sortConfig={pharmacySort} onSort={handlePharmacySort} className="hidden md:table-cell" />
+                <SortableHeader label="Submitted" field="submittedCount" sortConfig={pharmacySort} onSort={handlePharmacySort} className="hidden md:table-cell" />
+                <SortableHeader label="Processed" field="processedCount" sortConfig={pharmacySort} onSort={handlePharmacySort} className="hidden lg:table-cell" />
+                <SortableHeader label="Rate" field="complianceRate" sortConfig={pharmacySort} onSort={handlePharmacySort} />
+                <SortableHeader label="Submission" field="submissionMissed" sortConfig={pharmacySort} onSort={handlePharmacySort} />
+                <SortableHeader label="Processing" field="processingMissed" sortConfig={pharmacySort} onSort={handlePharmacySort} />
               </tr>
             </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {pharmacyData.length === 0 ? (
-                <tr><td colSpan={8} className="px-4 py-6 text-center text-sm text-gray-500">No data for this month.</td></tr>
-              ) : pharmacyData.map((p: any) => (
+            <tbody className="bg-white divide-y divide-gray-100">
+              {paginatedPharmacyData.length === 0 ? (
+                <tr><td colSpan={8} className="px-3 py-6 text-center text-gray-400">No data for this month.</td></tr>
+              ) : paginatedPharmacyData.map((p: any) => (
                 <tr key={p.pharmacyId} className="hover:bg-gray-50">
-                  <td className="px-4 py-3 text-sm font-medium text-gray-900">{p.pharmacyName}</td>
-                  <td className="px-4 py-3 text-sm font-mono text-gray-500">{p.pharmacyCode}</td>
-                  <td className="px-4 py-3 text-sm text-gray-500">{p.totalExpected}</td>
-                  <td className="px-4 py-3 text-sm text-gray-500">{p.submittedCount}</td>
-                  <td className="px-4 py-3 text-sm text-gray-500">{p.processedCount}</td>
-                  <td className="px-4 py-3 text-sm">
+                  <td className="px-3 py-2 font-medium text-gray-900">{p.pharmacyName}</td>
+                  <td className="px-3 py-2 font-mono text-gray-500 hidden sm:table-cell">{p.pharmacyCode}</td>
+                  <td className="px-3 py-2 text-gray-500 hidden md:table-cell">{p.totalExpected}</td>
+                  <td className="px-3 py-2 text-gray-500 hidden md:table-cell">{p.submittedCount}</td>
+                  <td className="px-3 py-2 text-gray-500 hidden lg:table-cell">{p.processedCount}</td>
+                  <td className="px-3 py-2">
                     <span className={`font-semibold ${p.complianceRate >= 100 ? 'text-emerald-600' : p.complianceRate >= 50 ? 'text-amber-600' : 'text-red-600'}`}>
                       {p.complianceRate}%
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-sm">
-                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${p.submissionMissed > 0 ? 'bg-red-50 text-red-700' : 'bg-emerald-50 text-emerald-700'}`}>
-                      {p.submissionMissed > 0 ? `${p.submissionMissed} missed` : 'Met'}
+                  <td className="px-3 py-2">
+                    <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold ${p.submissionMissed > 0 ? 'bg-red-50 text-red-700' : 'bg-emerald-50 text-emerald-700'}`}>
+                      {p.submissionMissed > 0 ? `${p.submissionMissed} miss` : 'Met'}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-sm">
-                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${p.processingMissed > 0 ? 'bg-red-50 text-red-700' : p.pending > 0 ? 'bg-amber-50 text-amber-700' : 'bg-emerald-50 text-emerald-700'}`}>
-                      {p.processingMissed > 0 ? `${p.processingMissed} missed` : p.pending > 0 ? `${p.pending} pending` : 'Met'}
+                  <td className="px-3 py-2">
+                    <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold ${p.processingMissed > 0 ? 'bg-red-50 text-red-700' : p.pending > 0 ? 'bg-amber-50 text-amber-700' : 'bg-emerald-50 text-emerald-700'}`}>
+                      {p.processingMissed > 0 ? `${p.processingMissed} miss` : p.pending > 0 ? `${p.pending} pend` : 'Met'}
                     </span>
                   </td>
                 </tr>
@@ -196,19 +289,28 @@ export default function SlaOversightPage() {
             </tbody>
           </table>
         </div>
+        {pharmacyTotalPages > 1 && (
+          <div className="px-3 py-2 border-t border-gray-200 flex items-center justify-between">
+            <span className="text-xs text-gray-500">Page {pharmacyPage} of {pharmacyTotalPages}</span>
+            <div className="flex gap-1">
+              <button onClick={() => setPharmacyPage(p => Math.max(1, p - 1))} disabled={pharmacyPage <= 1} className="text-xs px-2 py-1 rounded border border-gray-300 text-gray-600 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed">Prev</button>
+              <button onClick={() => setPharmacyPage(p => Math.min(pharmacyTotalPages, p + 1))} disabled={pharmacyPage >= pharmacyTotalPages} className="text-xs px-2 py-1 rounded border border-gray-300 text-gray-600 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed">Next</button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* SLA Events */}
       <div className="card overflow-hidden">
-        <div className="px-4 py-3 bg-gray-50 border-b">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-            <h3 className="text-sm font-heading font-semibold text-gray-900">SLA Events ({eventsTotalCount})</h3>
-            <div className="flex gap-2">
-              <select value={pharmacyFilter} onChange={e => { setPharmacyFilter(e.target.value); }} className="input-field text-sm py-1">
+        <div className="px-3 py-2 bg-gray-50 border-b">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+            <h3 className="text-xs font-heading font-semibold text-gray-900">SLA Events ({eventsTotalCount})</h3>
+            <div className="flex gap-1">
+              <select value={pharmacyFilter} onChange={e => { setPharmacyFilter(e.target.value); }} className="input-field text-xs py-1">
                 <option value="">All Pharmacies</option>
                 {pharmacies.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
               </select>
-              <select value={eventTypeFilter} onChange={e => { setEventTypeFilter(e.target.value); }} className="input-field text-sm py-1">
+              <select value={eventTypeFilter} onChange={e => { setEventTypeFilter(e.target.value); }} className="input-field text-xs py-1">
                 <option value="">All Types</option>
                 <option value="SUBMISSION_MISSED">Submission Missed</option>
                 <option value="PROCESSING_MISSED">Processing Missed</option>
@@ -219,32 +321,32 @@ export default function SlaOversightPage() {
           </div>
         </div>
         <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
+          <table className="min-w-full text-xs">
             <thead className="bg-gray-50">
               <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Pharmacy</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Event Type</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Month</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden md:table-cell">Notes</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden lg:table-cell">Invoice</th>
+                <SortableHeader label="Date" field="createdAt" sortConfig={eventsSort} onSort={handleEventsSort} />
+                <SortableHeader label="Pharmacy" field="pharmacy" sortConfig={eventsSort} onSort={handleEventsSort} />
+                <SortableHeader label="Event Type" field="eventType" sortConfig={eventsSort} onSort={handleEventsSort} />
+                <SortableHeader label="Month" field="yearMonth" sortConfig={eventsSort} onSort={handleEventsSort} />
+                <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase hidden md:table-cell">Notes</th>
+                <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase hidden lg:table-cell">Invoice</th>
               </tr>
             </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {slaEvents.length === 0 ? (
-                <tr><td colSpan={6} className="px-4 py-6 text-center text-sm text-gray-500">No SLA events found.</td></tr>
-              ) : slaEvents.map((evt: any) => (
+            <tbody className="bg-white divide-y divide-gray-100">
+              {sortedEvents.length === 0 ? (
+                <tr><td colSpan={6} className="px-3 py-6 text-center text-gray-400">No SLA events found.</td></tr>
+              ) : sortedEvents.map((evt: any) => (
                 <tr key={evt.id} className="hover:bg-gray-50">
-                  <td className="px-4 py-3 text-sm text-gray-500">{new Date(evt.createdAt).toLocaleString()}</td>
-                  <td className="px-4 py-3 text-sm text-gray-900">{evt.pharmacy?.name} <span className="text-xs text-gray-400">({evt.pharmacy?.code})</span></td>
-                  <td className="px-4 py-3 text-sm">
-                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${EVENT_TYPE_COLORS[evt.eventType] || 'bg-gray-100 text-gray-700'}`}>
+                  <td className="px-3 py-2 text-gray-500">{new Date(evt.createdAt).toLocaleString()}</td>
+                  <td className="px-3 py-2 text-gray-900">{evt.pharmacy?.name} <span className="text-[10px] text-gray-400">({evt.pharmacy?.code})</span></td>
+                  <td className="px-3 py-2">
+                    <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold ${EVENT_TYPE_COLORS[evt.eventType] || 'bg-gray-100 text-gray-700'}`}>
                       {evt.eventType.replace(/_/g, ' ')}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-sm font-mono text-gray-500">{evt.yearMonth}</td>
-                  <td className="px-4 py-3 text-sm text-gray-500 hidden md:table-cell">{evt.notes || '-'}</td>
-                  <td className="px-4 py-3 text-sm hidden lg:table-cell">
+                  <td className="px-3 py-2 font-mono text-gray-500">{evt.yearMonth}</td>
+                  <td className="px-3 py-2 text-gray-500 hidden md:table-cell">{evt.notes || '-'}</td>
+                  <td className="px-3 py-2 hidden lg:table-cell">
                     {evt.invoice ? (
                       <Link href={`/dashboard/admin/oversight/invoices/${evt.invoice.id}`} className="text-primary-600 hover:underline">
                         {evt.invoice.invoiceNumber || evt.invoice.id.slice(0, 8)}
@@ -257,11 +359,11 @@ export default function SlaOversightPage() {
           </table>
         </div>
         {eventsTotalPages > 1 && (
-          <div className="px-4 py-3 border-t border-gray-200 flex items-center justify-between">
-            <span className="text-sm text-gray-500">Page {eventsPage} of {eventsTotalPages}</span>
-            <div className="flex gap-2">
-              <button onClick={() => fetchEvents(eventsPage - 1)} disabled={eventsPage <= 1} className="text-sm px-3 py-1 rounded-md border border-gray-300 text-gray-600 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed">Previous</button>
-              <button onClick={() => fetchEvents(eventsPage + 1)} disabled={eventsPage >= eventsTotalPages} className="text-sm px-3 py-1 rounded-md border border-gray-300 text-gray-600 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed">Next</button>
+          <div className="px-3 py-2 border-t border-gray-200 flex items-center justify-between">
+            <span className="text-xs text-gray-500">Page {eventsPage} of {eventsTotalPages}</span>
+            <div className="flex gap-1">
+              <button onClick={() => fetchEvents(eventsPage - 1)} disabled={eventsPage <= 1} className="text-xs px-2 py-1 rounded border border-gray-300 text-gray-600 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed">Prev</button>
+              <button onClick={() => fetchEvents(eventsPage + 1)} disabled={eventsPage >= eventsTotalPages} className="text-xs px-2 py-1 rounded border border-gray-300 text-gray-600 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed">Next</button>
             </div>
           </div>
         )}

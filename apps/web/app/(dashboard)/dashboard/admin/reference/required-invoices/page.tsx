@@ -170,7 +170,7 @@ export default function RequiredInvoicesPage() {
               <p className="text-xs text-gray-400 mt-1">Leave blank for global; select pharmacy for override</p>
             </div>
             <div className="flex items-end">
-              <button type="submit" disabled={creating} className="btn-primary">{creating ? 'Adding...' : 'Add Requirement'}</button>
+              <button type="submit" disabled={creating} className="btn-accent">{creating ? 'Adding...' : 'Add Requirement'}</button>
             </div>
           </form>
         </div>

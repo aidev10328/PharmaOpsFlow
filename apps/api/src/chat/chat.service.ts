@@ -26,13 +26,14 @@ IMPORTANT: Return ONLY valid JSON, no additional text or markdown.
 Current context:
 - Current date: {{CURRENT_DATE}}
 - Organization timezone: {{ORG_TIMEZONE}}
+- Current user: {{USER_NAME}} ({{USER_EMAIL}}) - Role: {{USER_ROLE}}
 - Allowed invoice statuses: DRAFT, SUBMITTED, NEEDS_INFO, APPROVED, SCHEDULED, PAID, REJECTED
 - Known invoice types: {{INVOICE_TYPES}}
 - Pharmacy codes: {{PHARMACY_CODES}}
 
 Query plan format:
 {
-  "intent": "invoice_search" | "invoice_summary" | "sla_summary" | "invoice_detail",
+  "intent": "invoice_search" | "invoice_summary" | "sla_summary" | "invoice_detail" | "help",
   "filters": {
     "month": "YYYY-MM",
     "pharmacyId": "uuid",
@@ -48,7 +49,8 @@ Query plan format:
   },
   "groupBy": "pharmacy" | "invoiceType" | "status" | "vendor" | null,
   "sort": [{"field": "dueDate" | "amount" | "createdAt", "direction": "asc" | "desc"}],
-  "limit": number
+  "limit": number,
+  "helpResponse": "string (only for help intent)"
 }
 
 Rules:
@@ -60,6 +62,8 @@ Rules:
 6. For specific invoice questions, use intent: "invoice_detail" with filters.invoiceId
 7. Default limit is 20, max is 100
 8. If month not specified for SLA, use current month
+9. For questions about "who am I", "my name", "my role", greetings, or anything NOT about invoices, use intent: "help" and include a helpful response in "helpResponse" field. Example: {"intent": "help", "helpResponse": "You are logged in as John Doe (john@example.com) with role ADMIN."}
+10. For "help" or "what can you do", use intent: "help" with a list of example questions in helpResponse
 
 User question: {{USER_MESSAGE}}
 
@@ -90,10 +94,16 @@ export class ChatService {
     }
 
     // Get context for the prompt
-    const [invoiceTypes, pharmacies] = await Promise.all([
+    const [invoiceTypes, pharmacies, user] = await Promise.all([
       this.queryService.getInvoiceTypes(),
       this.queryService.getPharmaciesForOrg(orgId),
+      this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { firstName: true, lastName: true, email: true, role: true },
+      }),
     ]);
+
+    const userName = user ? [user.firstName, user.lastName].filter(Boolean).join(' ') || 'Unknown User' : 'Unknown User';
 
     // Build the prompt
     const now = new Date();
@@ -103,6 +113,9 @@ export class ChatService {
     let prompt = QUERY_PLANNER_PROMPT
       .replace('{{CURRENT_DATE}}', currentDate)
       .replace('{{ORG_TIMEZONE}}', orgTimezone)
+      .replace('{{USER_NAME}}', userName)
+      .replace('{{USER_EMAIL}}', user?.email || 'unknown@example.com')
+      .replace('{{USER_ROLE}}', user?.role || 'USER')
       .replace('{{INVOICE_TYPES}}', invoiceTypes.map((t) => t.name).join(', '))
       .replace(
         '{{PHARMACY_CODES}}',
@@ -113,8 +126,8 @@ export class ChatService {
     // Call LLM
     const llmResponse = await this.callLLM(prompt);
 
-    // Parse and validate the response
-    const queryPlan = this.parseQueryPlan(llmResponse);
+    // Parse and validate the response (with fallback for help questions)
+    const queryPlan = this.parseQueryPlan(llmResponse, dto.message, userName, user?.email, user?.role);
 
     // Validate the query plan
     this.validateQueryPlan(queryPlan);
@@ -197,6 +210,12 @@ export class ChatService {
           orgId,
         );
         summaryText = this.generateDetailSummary(result);
+        break;
+
+      case 'help':
+        // Return help response without querying the database
+        result = { rows: [], totalCount: 0 };
+        summaryText = queryPlan.helpResponse || 'I can help you with invoice-related questions. Try asking about overdue invoices, totals by pharmacy, or SLA compliance.';
         break;
 
       default:
@@ -352,9 +371,15 @@ export class ChatService {
   }
 
   /**
-   * Parse query plan from LLM response
+   * Parse query plan from LLM response with fallback for help questions
    */
-  private parseQueryPlan(response: string): QueryPlanDto {
+  private parseQueryPlan(
+    response: string,
+    originalMessage?: string,
+    userName?: string,
+    userEmail?: string,
+    userRole?: string,
+  ): QueryPlanDto {
     let jsonText = response.trim();
 
     // Remove markdown code blocks if present
@@ -368,14 +393,55 @@ export class ChatService {
     }
     jsonText = jsonText.trim();
 
+    // Try to extract JSON from the response if it contains other text
+    const jsonMatch = jsonText.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      jsonText = jsonMatch[0];
+    }
+
     try {
       return JSON.parse(jsonText);
     } catch (error) {
+      this.logger.warn(`Failed to parse query plan, checking for help fallback: ${response}`);
+
+      // Check if this is a help-type question and create a fallback response
+      const lowerMessage = (originalMessage || '').toLowerCase();
+      const helpKeywords = ['who am i', 'my name', 'my user', 'hello', 'hi', 'help', 'what can you do', 'how do i'];
+
+      if (helpKeywords.some(keyword => lowerMessage.includes(keyword))) {
+        // Return a help response
+        return {
+          intent: 'help' as any,
+          helpResponse: this.generateHelpResponse(lowerMessage, userName, userEmail, userRole),
+        };
+      }
+
       this.logger.error(`Failed to parse query plan: ${response}`);
       throw new BadRequestException(
-        'Failed to parse query plan from AI response',
+        'Failed to parse query plan from AI response. Try asking about invoices, e.g., "Show me overdue invoices" or "Total amount by pharmacy".',
       );
     }
+  }
+
+  /**
+   * Generate a help response for non-invoice questions
+   */
+  private generateHelpResponse(
+    message: string,
+    userName?: string,
+    userEmail?: string,
+    userRole?: string,
+  ): string {
+    if (message.includes('who am i') || message.includes('my name') || message.includes('my user')) {
+      return `You are logged in as ${userName || 'Unknown User'} (${userEmail || 'unknown'}) with role: ${userRole || 'USER'}.`;
+    }
+
+    if (message.includes('hello') || message.includes('hi')) {
+      return `Hello ${userName || 'there'}! I'm your invoice assistant. I can help you with:\n- Searching invoices (e.g., "Show me overdue invoices")\n- Summarizing data (e.g., "Total amount by pharmacy this month")\n- SLA compliance (e.g., "Which pharmacies missed the submission deadline?")\n- Invoice details (e.g., "Show invoice #12345")`;
+    }
+
+    // Default help
+    return `I can help you with invoice-related questions. Try:\n- "Show me overdue invoices"\n- "Total amount by pharmacy this month"\n- "Which pharmacies missed the submission deadline?"\n- "Unpaid invoices from McKesson"\n- "Invoices needing review"`;
   }
 
   /**
@@ -387,12 +453,18 @@ export class ChatService {
       'invoice_summary',
       'sla_summary',
       'invoice_detail',
+      'help',
     ];
 
     if (!queryPlan.intent || !validIntents.includes(queryPlan.intent)) {
       throw new BadRequestException(
         `Invalid intent. Must be one of: ${validIntents.join(', ')}`,
       );
+    }
+
+    // Help intent doesn't need further validation
+    if (queryPlan.intent === 'help') {
+      return;
     }
 
     if (queryPlan.intent === 'invoice_detail' && !queryPlan.filters?.invoiceId) {

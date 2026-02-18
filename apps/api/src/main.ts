@@ -18,6 +18,9 @@ async function bootstrap() {
   app.useGlobalPipes(new ValidationPipe({
     whitelist: true,
     transform: true,
+    transformOptions: {
+      enableImplicitConversion: true,
+    },
   }));
 
   const port = process.env.API_PORT || 4000;

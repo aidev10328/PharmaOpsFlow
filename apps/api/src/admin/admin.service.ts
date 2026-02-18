@@ -65,8 +65,13 @@ export class AdminService {
 
   // ===== Pharmacy Management =====
 
-  async listPharmacies() {
+  async listPharmacies(user?: { role: string; orgId?: string }) {
+    const where = user?.role === 'COMPANY_MANAGER' && user.orgId
+      ? { orgId: user.orgId }
+      : {};
+
     return this.prisma.pharmacy.findMany({
+      where,
       include: {
         org: { select: { id: true, name: true } },
         _count: { select: { members: true, invoices: true } },

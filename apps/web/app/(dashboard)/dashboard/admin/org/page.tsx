@@ -4,7 +4,6 @@ import { useAuth } from '../../../../../components/AuthProvider';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { apiFetch } from '../../../../../lib/api';
-import Link from 'next/link';
 
 export default function OrgSettingsPage() {
   const { user, loading } = useAuth();
@@ -87,13 +86,13 @@ export default function OrgSettingsPage() {
 
   if (loading || loadingData) {
     return (
-      <div className="flex items-center justify-center py-20">
-        <div className="flex items-center gap-3 text-gray-500">
-          <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
+      <div className="flex items-center justify-center py-12">
+        <div className="flex items-center gap-2 text-gray-400">
+          <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
           </svg>
-          <span className="text-sm font-medium">Loading...</span>
+          <span className="text-sm">Loading...</span>
         </div>
       </div>
     );
@@ -102,75 +101,45 @@ export default function OrgSettingsPage() {
   if (!user || user.role !== 'ADMIN') return null;
 
   return (
-    <div className="max-w-2xl mx-auto space-y-6">
-      <div>
-        <Link href="/dashboard/admin" className="text-link text-sm">
-          &larr; Back to Admin
-        </Link>
-      </div>
+    <div className="max-w-xl mx-auto space-y-3">
+      <div className="card p-3">
+        <h1 className="text-lg font-heading font-bold text-gray-900 mb-3">Organization Settings</h1>
 
-      <div className="card p-6">
-        <h1 className="page-title mb-6">Organization Settings</h1>
+        {error && <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded text-xs mb-3">{error}</div>}
+        {success && <div className="bg-green-50 border border-green-200 text-green-700 px-3 py-2 rounded text-xs mb-3">{success}</div>}
 
-        {error && <div className="alert-error mb-6">{error}</div>}
-        {success && <div className="alert-success mb-6">{success}</div>}
-
-        <form onSubmit={handleSubmit} className="space-y-5">
-          <div>
-            <label className="field-label">Organization Name</label>
-            <input
-              type="text"
-              name="name"
-              value={formData.name}
-              onChange={handleChange}
-              className="input-field"
-              required
-            />
-          </div>
-
-          <div>
-            <label className="field-label">Timezone</label>
-            <select name="timezone" value={formData.timezone} onChange={handleChange} className="input-field">
-              <option value="America/New_York">Eastern (America/New_York)</option>
-              <option value="America/Chicago">Central (America/Chicago)</option>
-              <option value="America/Denver">Mountain (America/Denver)</option>
-              <option value="America/Los_Angeles">Pacific (America/Los_Angeles)</option>
-            </select>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
+        <form onSubmit={handleSubmit} className="space-y-3">
+          <div className="grid grid-cols-2 gap-2">
             <div>
-              <label className="field-label">Submission Due Day</label>
-              <input
-                type="number"
-                name="submissionDueDay"
-                value={formData.submissionDueDay}
-                onChange={handleChange}
-                min="1"
-                max="28"
-                className="input-field"
-                required
-              />
-              <p className="field-hint">Day of month invoices must be submitted (1-28)</p>
+              <label className="block text-[10px] font-medium text-gray-700 mb-0.5">Organization Name</label>
+              <input type="text" name="name" value={formData.name} onChange={handleChange} className="input-field text-xs py-1.5" required />
             </div>
             <div>
-              <label className="field-label">Processing Due Day</label>
-              <input
-                type="number"
-                name="processingDueDay"
-                value={formData.processingDueDay}
-                onChange={handleChange}
-                min="1"
-                max="28"
-                className="input-field"
-                required
-              />
-              <p className="field-hint">Day of month invoices must be processed (1-28)</p>
+              <label className="block text-[10px] font-medium text-gray-700 mb-0.5">Timezone</label>
+              <select name="timezone" value={formData.timezone} onChange={handleChange} className="input-field text-xs py-1.5">
+                <option value="America/New_York">Eastern</option>
+                <option value="America/Chicago">Central</option>
+                <option value="America/Denver">Mountain</option>
+                <option value="America/Los_Angeles">Pacific</option>
+              </select>
             </div>
           </div>
 
-          <div className="flex justify-end pt-4 border-t border-gray-100">
-            <button type="submit" disabled={submitting} className="btn-primary">
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="block text-[10px] font-medium text-gray-700 mb-0.5">Submission Due Day</label>
+              <input type="number" name="submissionDueDay" value={formData.submissionDueDay} onChange={handleChange} min="1" max="28" className="input-field text-xs py-1.5" required />
+              <p className="text-[10px] text-gray-400 mt-0.5">Day of month (1-28)</p>
+            </div>
+            <div>
+              <label className="block text-[10px] font-medium text-gray-700 mb-0.5">Processing Due Day</label>
+              <input type="number" name="processingDueDay" value={formData.processingDueDay} onChange={handleChange} min="1" max="28" className="input-field text-xs py-1.5" required />
+              <p className="text-[10px] text-gray-400 mt-0.5">Day of month (1-28)</p>
+            </div>
+          </div>
+
+          <div className="flex justify-end pt-2 border-t border-gray-100">
+            <button type="submit" disabled={submitting} className="btn-accent text-xs px-3 py-1.5">
               {submitting ? 'Saving...' : 'Save Settings'}
             </button>
           </div>

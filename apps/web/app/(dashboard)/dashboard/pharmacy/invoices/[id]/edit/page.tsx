@@ -392,7 +392,7 @@ export default function EditInvoicePage() {
             <button
               type="submit"
               disabled={submitting}
-              className="btn-primary"
+              className="btn-accent"
             >
               {submitting ? 'Saving...' : 'Save Changes'}
             </button>

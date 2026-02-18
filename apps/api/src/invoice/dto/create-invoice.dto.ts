@@ -4,9 +4,12 @@ import {
   IsDateString,
   IsNumber,
   IsOptional,
+  IsEnum,
   Min,
   MaxLength,
 } from 'class-validator';
+
+export type DocumentType = 'INVOICE' | 'STATEMENT' | 'CREDIT_MEMO' | 'OTHER';
 
 export class CreateInvoiceDto {
   @IsUUID()
@@ -21,6 +24,10 @@ export class CreateInvoiceDto {
   @IsString()
   @MaxLength(100)
   invoiceNumber: string;
+
+  @IsOptional()
+  @IsEnum(['INVOICE', 'STATEMENT', 'CREDIT_MEMO', 'OTHER'])
+  documentType?: DocumentType;
 
   @IsDateString()
   invoiceDate: string;

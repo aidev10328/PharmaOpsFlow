@@ -2,7 +2,7 @@
 
 import { useAuth } from '../../../../../components/AuthProvider';
 import { useRouter } from 'next/navigation';
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { apiFetch } from '../../../../../lib/api';
 import Link from 'next/link';
 
@@ -28,6 +28,11 @@ type Requirement = {
   createdAt: string;
 };
 
+type SortConfig = {
+  field: string;
+  direction: 'asc' | 'desc';
+};
+
 const frequencyOptions = [
   { value: 'MONTHLY', label: 'Monthly' },
   { value: 'WEEKLY', label: 'Weekly' },
@@ -41,6 +46,35 @@ const currentMonth = () => {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 };
+
+function SortableHeader({
+  label,
+  field,
+  sortConfig,
+  onSort,
+  className = '',
+}: {
+  label: string;
+  field: string;
+  sortConfig: SortConfig;
+  onSort: (field: string) => void;
+  className?: string;
+}) {
+  const isActive = sortConfig.field === field;
+  return (
+    <th
+      className={`px-3 py-2 font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100 select-none ${className}`}
+      onClick={() => onSort(field)}
+    >
+      <div className="flex items-center gap-1">
+        {label}
+        <span className={`text-[10px] ${isActive ? 'text-primary-600' : 'text-gray-300'}`}>
+          {isActive ? (sortConfig.direction === 'asc' ? '▲' : '▼') : '▼'}
+        </span>
+      </div>
+    </th>
+  );
+}
 
 export default function RequirementsPage() {
   const { user, loading } = useAuth();
@@ -57,6 +91,11 @@ export default function RequirementsPage() {
   // Filters
   const [filterPharmacy, setFilterPharmacy] = useState<string>('');
   const [filterActive, setFilterActive] = useState<string>('true');
+
+  // Pagination and sorting
+  const [currentPage, setCurrentPage] = useState(1);
+  const [sortConfig, setSortConfig] = useState<SortConfig>({ field: 'pharmacy', direction: 'asc' });
+  const itemsPerPage = 10;
 
   type FrequencyType = 'WEEKLY' | 'MONTHLY' | 'QUARTERLY' | 'ANNUALLY';
 
@@ -163,6 +202,66 @@ export default function RequirementsPage() {
       fetchRequirements();
     }
   }, [filterPharmacy, filterActive, fetchRequirements, user]);
+
+  // Reset page when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filterPharmacy, filterActive]);
+
+  const handleSort = (field: string) => {
+    setSortConfig(prev => ({
+      field,
+      direction: prev.field === field && prev.direction === 'asc' ? 'desc' : 'asc',
+    }));
+    setCurrentPage(1);
+  };
+
+  // Sort and paginate data
+  const sortedAndPaginatedData = useMemo(() => {
+    const sorted = [...requirements].sort((a, b) => {
+      let aVal: any;
+      let bVal: any;
+
+      switch (sortConfig.field) {
+        case 'pharmacy':
+          aVal = a.pharmacy?.code || '';
+          bVal = b.pharmacy?.code || '';
+          break;
+        case 'name':
+          aVal = a.name || '';
+          bVal = b.name || '';
+          break;
+        case 'vendor':
+          aVal = a.vendor?.name || '';
+          bVal = b.vendor?.name || '';
+          break;
+        case 'frequency':
+          aVal = a.frequency || '';
+          bVal = b.frequency || '';
+          break;
+        case 'isActive':
+          aVal = a.isActive ? 1 : 0;
+          bVal = b.isActive ? 1 : 0;
+          break;
+        default:
+          aVal = a.pharmacy?.code || '';
+          bVal = b.pharmacy?.code || '';
+      }
+
+      if (typeof aVal === 'string' && typeof bVal === 'string') {
+        return sortConfig.direction === 'asc'
+          ? aVal.localeCompare(bVal)
+          : bVal.localeCompare(aVal);
+      }
+
+      return sortConfig.direction === 'asc' ? aVal - bVal : bVal - aVal;
+    });
+
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    return sorted.slice(startIndex, startIndex + itemsPerPage);
+  }, [requirements, sortConfig, currentPage]);
+
+  const totalPages = Math.ceil(requirements.length / itemsPerPage);
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -336,13 +435,13 @@ export default function RequirementsPage() {
 
   if (loading || loadingData) {
     return (
-      <div className="flex items-center justify-center py-20">
-        <div className="flex items-center gap-3 text-gray-500">
-          <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
+      <div className="flex items-center justify-center py-12">
+        <div className="flex items-center gap-2 text-gray-400">
+          <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
           </svg>
-          <span className="text-sm font-medium">Loading...</span>
+          <span className="text-sm">Loading...</span>
         </div>
       </div>
     );
@@ -351,79 +450,72 @@ export default function RequirementsPage() {
   if (!user || !['ADMIN', 'COMPANY_MANAGER'].includes(user.role)) return null;
 
   return (
-    <div className="max-w-6xl mx-auto space-y-6">
-      <div>
-        <Link href="/dashboard/admin" className="text-link text-sm">&larr; Back to Admin</Link>
-      </div>
-
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+    <div className="max-w-6xl mx-auto space-y-3">
+      {/* Header */}
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <div>
-          <h1 className="page-title">Invoice Requirements</h1>
-          <p className="text-sm text-gray-500 mt-1">Define recurring invoice requirements for each pharmacy</p>
+          <h1 className="text-lg font-heading font-bold text-gray-900">Requirements</h1>
+          <p className="text-xs text-gray-500">{requirements.length} requirements</p>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <Link href="/dashboard/admin/requirements/instances" className="btn-secondary">View Instances</Link>
-          <Link href="/dashboard/admin/requirements/compliance" className="btn-secondary">Compliance Summary</Link>
-          <button onClick={handleAutoLink} disabled={autoLinking} className="btn-secondary">
-            {autoLinking ? 'Linking...' : 'Auto-Link Invoices'}
+        <div className="flex flex-wrap items-center gap-1.5">
+          <Link href="/dashboard/admin/requirements/instances" className="text-xs px-3 py-1.5 rounded-md border border-gray-200 bg-white text-gray-700 font-medium hover:bg-gray-50 hover:border-gray-300 transition-colors shadow-sm">Instances</Link>
+          <Link href="/dashboard/admin/requirements/compliance" className="text-xs px-3 py-1.5 rounded-md border border-gray-200 bg-white text-gray-700 font-medium hover:bg-gray-50 hover:border-gray-300 transition-colors shadow-sm">Compliance</Link>
+          <button onClick={handleAutoLink} disabled={autoLinking} className="text-xs px-3 py-1.5 rounded-md border border-gray-200 bg-white text-gray-700 font-medium hover:bg-gray-50 hover:border-gray-300 transition-colors shadow-sm disabled:opacity-50">
+            {autoLinking ? '...' : 'Auto-Link'}
           </button>
-          <button onClick={() => { setShowGenerate(!showGenerate); setShowCreate(false); setError(null); setSuccess(null); }} className="btn-secondary">
-            {showGenerate ? 'Cancel' : 'Generate Instances'}
+          <button onClick={() => { setShowGenerate(!showGenerate); setShowCreate(false); setError(null); setSuccess(null); }} className="text-xs px-3 py-1.5 rounded-md border border-gray-200 bg-white text-gray-700 font-medium hover:bg-gray-50 hover:border-gray-300 transition-colors shadow-sm">
+            {showGenerate ? 'Cancel' : 'Generate'}
           </button>
-          <button onClick={() => { setShowCreate(!showCreate); setShowGenerate(false); setError(null); setSuccess(null); }} className="btn-primary">
-            {showCreate ? 'Cancel' : 'New Requirement'}
+          <button onClick={() => { setShowCreate(!showCreate); setShowGenerate(false); setError(null); setSuccess(null); }} className="btn-primary text-xs px-3 py-1.5 shadow-sm">
+            {showCreate ? 'Cancel' : '+ Add'}
           </button>
         </div>
       </div>
 
-      {error && <div className="alert-error">{error}</div>}
-      {success && <div className="alert-success">{success}</div>}
+      {error && <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded text-xs">{error}</div>}
+      {success && <div className="bg-green-50 border border-green-200 text-green-700 px-3 py-2 rounded text-xs">{success}</div>}
 
       {/* Filters */}
-      <div className="card p-4">
-        <div className="flex flex-wrap gap-4">
-          <div className="flex-1 min-w-[180px]">
-            <label className="field-label">Pharmacy</label>
-            <select value={filterPharmacy} onChange={e => setFilterPharmacy(e.target.value)} className="input-field">
-              <option value="">All Pharmacies</option>
-              {pharmacies.map(p => <option key={p.id} value={p.id}>{p.name} ({p.code})</option>)}
-            </select>
-          </div>
-          <div className="w-32">
-            <label className="field-label">Status</label>
-            <select value={filterActive} onChange={e => setFilterActive(e.target.value)} className="input-field">
-              <option value="">All</option>
-              <option value="true">Active</option>
-              <option value="false">Inactive</option>
-            </select>
-          </div>
+      <div className="card p-2 flex flex-wrap gap-2 items-end">
+        <div className="flex-1 min-w-[140px]">
+          <label className="block text-[10px] font-medium text-gray-700 mb-0.5">Pharmacy</label>
+          <select value={filterPharmacy} onChange={e => setFilterPharmacy(e.target.value)} className="input-field text-xs py-1.5">
+            <option value="">All</option>
+            {pharmacies.map(p => <option key={p.id} value={p.id}>{p.code}</option>)}
+          </select>
+        </div>
+        <div className="w-24">
+          <label className="block text-[10px] font-medium text-gray-700 mb-0.5">Status</label>
+          <select value={filterActive} onChange={e => setFilterActive(e.target.value)} className="input-field text-xs py-1.5">
+            <option value="">All</option>
+            <option value="true">Active</option>
+            <option value="false">Inactive</option>
+          </select>
         </div>
       </div>
 
       {/* Generate Instances Form */}
       {showGenerate && (
-        <div className="card p-5">
-          <h3 className="text-sm font-heading font-semibold text-gray-900 mb-4">Generate Requirement Instances</h3>
-          <p className="text-sm text-gray-500 mb-4">Create tracking instances for all active requirements in the specified period.</p>
-          <form onSubmit={handleGenerate} className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="card p-3">
+          <h3 className="text-xs font-semibold text-gray-900 mb-2">Generate Instances</h3>
+          <form onSubmit={handleGenerate} className="grid grid-cols-2 md:grid-cols-4 gap-2">
             <div>
-              <label className="field-label">Start Month <span className="text-red-500">*</span></label>
-              <input type="month" value={generateForm.startMonth} onChange={e => setGenerateForm(f => ({ ...f, startMonth: e.target.value }))} className="input-field" required />
+              <label className="block text-[10px] font-medium text-gray-700 mb-0.5">Start Month *</label>
+              <input type="month" value={generateForm.startMonth} onChange={e => setGenerateForm(f => ({ ...f, startMonth: e.target.value }))} className="input-field text-xs py-1.5" required />
             </div>
             <div>
-              <label className="field-label">End Month</label>
-              <input type="month" value={generateForm.endMonth} onChange={e => setGenerateForm(f => ({ ...f, endMonth: e.target.value }))} className="input-field" />
-              <p className="text-xs text-gray-400 mt-1">Defaults to start month</p>
+              <label className="block text-[10px] font-medium text-gray-700 mb-0.5">End Month</label>
+              <input type="month" value={generateForm.endMonth} onChange={e => setGenerateForm(f => ({ ...f, endMonth: e.target.value }))} className="input-field text-xs py-1.5" />
             </div>
             <div>
-              <label className="field-label">Pharmacy</label>
-              <select value={generateForm.pharmacyId} onChange={e => setGenerateForm(f => ({ ...f, pharmacyId: e.target.value }))} className="input-field">
-                <option value="">All Pharmacies</option>
-                {pharmacies.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              <label className="block text-[10px] font-medium text-gray-700 mb-0.5">Pharmacy</label>
+              <select value={generateForm.pharmacyId} onChange={e => setGenerateForm(f => ({ ...f, pharmacyId: e.target.value }))} className="input-field text-xs py-1.5">
+                <option value="">All</option>
+                {pharmacies.map(p => <option key={p.id} value={p.id}>{p.code}</option>)}
               </select>
             </div>
-            <div className="md:col-span-3">
-              <button type="submit" disabled={generating} className="btn-primary">{generating ? 'Generating...' : 'Generate Instances'}</button>
+            <div className="flex items-end">
+              <button type="submit" disabled={generating} className="btn-dark text-xs px-3 py-1.5">{generating ? '...' : 'Generate'}</button>
             </div>
           </form>
         </div>
@@ -431,67 +523,51 @@ export default function RequirementsPage() {
 
       {/* Create Form */}
       {showCreate && (
-        <div className="card p-5">
-          <h3 className="text-sm font-heading font-semibold text-gray-900 mb-4">Create Invoice Requirement</h3>
-          <form onSubmit={handleCreate} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="card p-3">
+          <h3 className="text-xs font-semibold text-gray-900 mb-2">New Requirement</h3>
+          <form onSubmit={handleCreate} className="grid grid-cols-2 md:grid-cols-4 gap-2">
             <div>
-              <label className="field-label">Pharmacy <span className="text-red-500">*</span></label>
-              <select value={createForm.pharmacyId} onChange={e => setCreateForm(f => ({ ...f, pharmacyId: e.target.value }))} className="input-field" required>
-                <option value="">Select Pharmacy</option>
-                <option value="ALL">All Pharmacies</option>
-                {pharmacies.map(p => <option key={p.id} value={p.id}>{p.name} ({p.code})</option>)}
+              <label className="block text-[10px] font-medium text-gray-700 mb-0.5">Pharmacy *</label>
+              <select value={createForm.pharmacyId} onChange={e => setCreateForm(f => ({ ...f, pharmacyId: e.target.value }))} className="input-field text-xs py-1.5" required>
+                <option value="">Select...</option>
+                <option value="ALL">All ({pharmacies.length})</option>
+                {pharmacies.map(p => <option key={p.id} value={p.id}>{p.code}</option>)}
               </select>
-              {createForm.pharmacyId === 'ALL' && (
-                <p className="text-xs text-blue-600 mt-1">This will create a requirement for all {pharmacies.length} pharmacies</p>
-              )}
             </div>
             <div>
-              <label className="field-label">Name <span className="text-red-500">*</span></label>
-              <input type="text" value={createForm.name} onChange={e => setCreateForm(f => ({ ...f, name: e.target.value }))} className="input-field" required placeholder="e.g., Monthly ConEd Bill" />
+              <label className="block text-[10px] font-medium text-gray-700 mb-0.5">Name *</label>
+              <input type="text" value={createForm.name} onChange={e => setCreateForm(f => ({ ...f, name: e.target.value }))} className="input-field text-xs py-1.5" required placeholder="Monthly ConEd" />
             </div>
             <div>
-              <label className="field-label">Frequency <span className="text-red-500">*</span></label>
-              <select value={createForm.frequency} onChange={e => setCreateForm(f => ({ ...f, frequency: e.target.value as any }))} className="input-field" required>
+              <label className="block text-[10px] font-medium text-gray-700 mb-0.5">Frequency *</label>
+              <select value={createForm.frequency} onChange={e => setCreateForm(f => ({ ...f, frequency: e.target.value as any }))} className="input-field text-xs py-1.5" required>
                 {frequencyOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
             </div>
             <div>
-              <label className="field-label">Vendor</label>
-              <select value={createForm.vendorId} onChange={e => setCreateForm(f => ({ ...f, vendorId: e.target.value }))} className="input-field">
-                <option value="">Any Vendor</option>
+              <label className="block text-[10px] font-medium text-gray-700 mb-0.5">Vendor</label>
+              <select value={createForm.vendorId} onChange={e => setCreateForm(f => ({ ...f, vendorId: e.target.value }))} className="input-field text-xs py-1.5">
+                <option value="">Any</option>
                 {vendors.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
               </select>
             </div>
             <div>
-              <label className="field-label">Invoice Type</label>
-              <select value={createForm.invoiceTypeId} onChange={e => setCreateForm(f => ({ ...f, invoiceTypeId: e.target.value }))} className="input-field">
-                <option value="">Any Type</option>
+              <label className="block text-[10px] font-medium text-gray-700 mb-0.5">Type</label>
+              <select value={createForm.invoiceTypeId} onChange={e => setCreateForm(f => ({ ...f, invoiceTypeId: e.target.value }))} className="input-field text-xs py-1.5">
+                <option value="">Any</option>
                 {invoiceTypes.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
               </select>
             </div>
             <div>
-              <label className="field-label">Description</label>
-              <input type="text" value={createForm.description} onChange={e => setCreateForm(f => ({ ...f, description: e.target.value }))} className="input-field" placeholder="Optional" />
+              <label className="block text-[10px] font-medium text-gray-700 mb-0.5">Sub Due</label>
+              <input type="number" min={1} max={28} value={createForm.submissionDueDay} onChange={e => setCreateForm(f => ({ ...f, submissionDueDay: parseInt(e.target.value) || 5 }))} className="input-field text-xs py-1.5" required />
             </div>
             <div>
-              <label className="field-label">Submission Due Day <span className="text-red-500">*</span></label>
-              <input type="number" min={1} max={28} value={createForm.submissionDueDay} onChange={e => setCreateForm(f => ({ ...f, submissionDueDay: parseInt(e.target.value) || 5 }))} className="input-field" required />
-              <p className="text-xs text-gray-400 mt-1">Day of period for submission deadline</p>
+              <label className="block text-[10px] font-medium text-gray-700 mb-0.5">Proc Due</label>
+              <input type="number" min={1} max={28} value={createForm.processingDueDay} onChange={e => setCreateForm(f => ({ ...f, processingDueDay: parseInt(e.target.value) || 10 }))} className="input-field text-xs py-1.5" required />
             </div>
-            <div>
-              <label className="field-label">Processing Due Day <span className="text-red-500">*</span></label>
-              <input type="number" min={1} max={28} value={createForm.processingDueDay} onChange={e => setCreateForm(f => ({ ...f, processingDueDay: parseInt(e.target.value) || 10 }))} className="input-field" required />
-              <p className="text-xs text-gray-400 mt-1">Day of period for processing deadline</p>
-            </div>
-            {(createForm.frequency === 'QUARTERLY' || createForm.frequency === 'ANNUALLY') && (
-              <div>
-                <label className="field-label">Applicable Months</label>
-                <input type="text" value={createForm.applicableMonths} onChange={e => setCreateForm(f => ({ ...f, applicableMonths: e.target.value }))} className="input-field" placeholder={createForm.frequency === 'QUARTERLY' ? '3,6,9,12' : '12'} />
-                <p className="text-xs text-gray-400 mt-1">{createForm.frequency === 'QUARTERLY' ? 'End months of each quarter' : 'Month for annual due date'}</p>
-              </div>
-            )}
-            <div className="md:col-span-2 lg:col-span-3">
-              <button type="submit" disabled={creating} className="btn-primary">{creating ? 'Creating...' : 'Create Requirement'}</button>
+            <div className="flex items-end">
+              <button type="submit" disabled={creating} className="btn-accent text-xs px-3 py-1.5">{creating ? '...' : 'Create'}</button>
             </div>
           </form>
         </div>
@@ -499,97 +575,111 @@ export default function RequirementsPage() {
 
       {/* Table */}
       <div className="card overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200 text-sm">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Pharmacy</th>
-                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
-                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase hidden md:table-cell">Vendor</th>
-                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Frequency</th>
-                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase hidden lg:table-cell">Due Days</th>
-                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {requirements.length === 0 ? (
-                <tr>
-                  <td colSpan={7} className="px-3 py-8 text-center text-sm text-gray-500">No requirements configured. Create one to get started.</td>
-                </tr>
-              ) : requirements.map((r) => (
-                <tr key={r.id} className={`hover:bg-gray-50 ${!r.isActive ? 'opacity-50' : ''}`}>
-                  <td className="px-3 py-2 text-gray-900">{r.pharmacy.code}</td>
-                  <td className="px-3 py-2 text-gray-900">
-                    {editingId === r.id ? (
-                      <input type="text" value={editForm.name} onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))} className="input-field py-1 text-sm w-40" />
-                    ) : (
-                      <div>
-                        <div className="font-medium">{r.name}</div>
-                        {r.description && <div className="text-xs text-gray-400">{r.description}</div>}
-                      </div>
-                    )}
-                  </td>
-                  <td className="px-3 py-2 text-gray-500 hidden md:table-cell">
-                    {editingId === r.id ? (
-                      <select value={editForm.vendorId} onChange={e => setEditForm(f => ({ ...f, vendorId: e.target.value }))} className="input-field py-1 text-sm w-32">
-                        <option value="">Any</option>
-                        {vendors.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
-                      </select>
-                    ) : (r.vendor?.name || 'Any')}
-                  </td>
-                  <td className="px-3 py-2">
-                    {editingId === r.id ? (
-                      <select value={editForm.frequency} onChange={e => setEditForm(f => ({ ...f, frequency: e.target.value as any }))} className="input-field py-1 text-sm w-28">
-                        {frequencyOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-                      </select>
-                    ) : (
-                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700">
-                        {frequencyLabel(r.frequency)}
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-3 py-2 text-gray-500 hidden lg:table-cell">
-                    {editingId === r.id ? (
-                      <div className="flex gap-1">
-                        <input type="number" min={1} max={28} value={editForm.submissionDueDay} onChange={e => setEditForm(f => ({ ...f, submissionDueDay: parseInt(e.target.value) || 5 }))} className="input-field py-1 text-sm w-14" title="Submission" />
-                        <input type="number" min={1} max={28} value={editForm.processingDueDay} onChange={e => setEditForm(f => ({ ...f, processingDueDay: parseInt(e.target.value) || 10 }))} className="input-field py-1 text-sm w-14" title="Processing" />
-                      </div>
-                    ) : (
-                      <span className="text-xs">Sub: {r.submissionDueDay}, Proc: {r.processingDueDay}</span>
-                    )}
-                  </td>
-                  <td className="px-3 py-2">
-                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${r.isActive ? 'bg-emerald-50 text-emerald-700' : 'bg-gray-100 text-gray-500'}`}>
-                      {r.isActive ? 'Active' : 'Inactive'}
-                    </span>
-                  </td>
-                  <td className="px-3 py-2">
-                    <div className="flex items-center gap-1">
-                      {editingId === r.id ? (
-                        <>
-                          <form onSubmit={handleEdit} className="inline">
-                            <button type="submit" disabled={saving} className="text-xs px-2 py-1 rounded-md font-medium text-primary-600 hover:bg-primary-50">{saving ? 'Saving...' : 'Save'}</button>
-                          </form>
-                          <button onClick={() => setEditingId(null)} className="text-xs px-2 py-1 rounded-md font-medium text-gray-500 hover:bg-gray-100">Cancel</button>
-                        </>
-                      ) : (
-                        <>
-                          <button onClick={() => startEdit(r)} className="text-xs px-2 py-1 rounded-md font-medium text-primary-600 hover:bg-primary-50">Edit</button>
-                          <button onClick={() => handleToggleActive(r)} className={`text-xs px-2 py-1 rounded-md font-medium ${r.isActive ? 'text-red-600 hover:bg-red-50' : 'text-emerald-600 hover:bg-emerald-50'}`}>
-                            {r.isActive ? 'Deactivate' : 'Activate'}
-                          </button>
-                        </>
-                      )}
+        <table className="min-w-full text-xs">
+          <thead className="bg-gray-50">
+            <tr>
+              <SortableHeader label="Pharm" field="pharmacy" sortConfig={sortConfig} onSort={handleSort} className="text-left" />
+              <SortableHeader label="Name" field="name" sortConfig={sortConfig} onSort={handleSort} className="text-left" />
+              <SortableHeader label="Vendor" field="vendor" sortConfig={sortConfig} onSort={handleSort} className="text-left hidden md:table-cell" />
+              <SortableHeader label="Freq" field="frequency" sortConfig={sortConfig} onSort={handleSort} className="text-left" />
+              <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase hidden lg:table-cell">Due</th>
+              <SortableHeader label="Status" field="isActive" sortConfig={sortConfig} onSort={handleSort} className="text-left" />
+              <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase">Actions</th>
+            </tr>
+          </thead>
+          <tbody className="bg-white divide-y divide-gray-100">
+            {sortedAndPaginatedData.length === 0 ? (
+              <tr><td colSpan={7} className="px-3 py-6 text-center text-gray-400">No requirements configured</td></tr>
+            ) : sortedAndPaginatedData.map((r) => (
+              <tr key={r.id} className={`hover:bg-gray-50 ${!r.isActive ? 'opacity-50' : ''}`}>
+                <td className="px-3 py-2 text-gray-900">{r.pharmacy.code}</td>
+                <td className="px-3 py-2 text-gray-900">
+                  {editingId === r.id ? (
+                    <input type="text" value={editForm.name} onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))} className="input-field py-1 text-xs w-28" />
+                  ) : r.name}
+                </td>
+                <td className="px-3 py-2 text-gray-500 hidden md:table-cell">
+                  {editingId === r.id ? (
+                    <select value={editForm.vendorId} onChange={e => setEditForm(f => ({ ...f, vendorId: e.target.value }))} className="input-field py-1 text-xs w-24">
+                      <option value="">Any</option>
+                      {vendors.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+                    </select>
+                  ) : (r.vendor?.name || '-')}
+                </td>
+                <td className="px-3 py-2">
+                  {editingId === r.id ? (
+                    <select value={editForm.frequency} onChange={e => setEditForm(f => ({ ...f, frequency: e.target.value as any }))} className="input-field py-1 text-xs w-20">
+                      {frequencyOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    </select>
+                  ) : (
+                    <span className="px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-blue-50 text-blue-700">{frequencyLabel(r.frequency)}</span>
+                  )}
+                </td>
+                <td className="px-3 py-2 text-gray-500 hidden lg:table-cell">
+                  {editingId === r.id ? (
+                    <div className="flex gap-1">
+                      <input type="number" min={1} max={28} value={editForm.submissionDueDay} onChange={e => setEditForm(f => ({ ...f, submissionDueDay: parseInt(e.target.value) || 5 }))} className="input-field py-1 text-xs w-10" />
+                      <input type="number" min={1} max={28} value={editForm.processingDueDay} onChange={e => setEditForm(f => ({ ...f, processingDueDay: parseInt(e.target.value) || 10 }))} className="input-field py-1 text-xs w-10" />
                     </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+                  ) : (
+                    <span className="text-[10px]">{r.submissionDueDay}/{r.processingDueDay}</span>
+                  )}
+                </td>
+                <td className="px-3 py-2">
+                  <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-semibold ${r.isActive ? 'bg-emerald-50 text-emerald-700' : 'bg-gray-100 text-gray-500'}`}>
+                    {r.isActive ? 'Active' : 'Off'}
+                  </span>
+                </td>
+                <td className="px-3 py-2">
+                  <div className="flex items-center gap-1">
+                    {editingId === r.id ? (
+                      <>
+                        <button onClick={handleEdit} disabled={saving} className="text-[10px] px-1.5 py-0.5 rounded bg-green-500 text-white font-medium">{saving ? '...' : 'Save'}</button>
+                        <button onClick={() => setEditingId(null)} className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-600 font-medium">Cancel</button>
+                      </>
+                    ) : (
+                      <>
+                        <button onClick={() => startEdit(r)} className="text-[10px] px-1.5 py-0.5 rounded hover:bg-gray-100 text-gray-600">Edit</button>
+                        <button onClick={() => handleToggleActive(r)} className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${r.isActive ? 'text-red-600 hover:bg-red-50' : 'text-emerald-600 hover:bg-emerald-50'}`}>
+                          {r.isActive ? 'Disable' : 'Enable'}
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
 
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <div className="px-3 py-2 border-t border-gray-100 flex items-center justify-between bg-gray-50/50">
+            <div className="text-[11px] text-gray-500">
+              Showing {((currentPage - 1) * itemsPerPage) + 1}-{Math.min(currentPage * itemsPerPage, requirements.length)} of {requirements.length}
+            </div>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                disabled={currentPage === 1}
+                className="px-2 py-1 text-[11px] font-medium rounded border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                Prev
+              </button>
+              <span className="px-2 text-[11px] text-gray-600">
+                {currentPage} / {totalPages}
+              </span>
+              <button
+                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                disabled={currentPage === totalPages}
+                className="px-2 py-1 text-[11px] font-medium rounded border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

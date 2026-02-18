@@ -426,7 +426,7 @@ export default function ExtractionReviewPanel({
             <button
               onClick={handleApply}
               disabled={applying}
-              className="btn-primary flex-1"
+              className="btn-accent flex-1"
             >
               {applying ? 'Applying...' : 'Apply to Invoice'}
             </button>

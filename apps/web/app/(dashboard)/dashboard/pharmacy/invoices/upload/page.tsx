@@ -2,7 +2,7 @@
 
 import { useAuth } from '../../../../../../components/AuthProvider';
 import { useRouter } from 'next/navigation';
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { apiFetch } from '../../../../../../lib/api';
 import Link from 'next/link';
 
@@ -31,6 +31,14 @@ type Confidence = {
   amount?: number;
 };
 
+// Temporary file data returned from extract-only endpoint
+type TempFileData = {
+  tempFilePath: string;
+  originalName: string;
+  mimeType: string;
+  sizeBytes: number;
+};
+
 export default function UploadInvoicePage() {
   const { user, loading } = useAuth();
   const router = useRouter();
@@ -43,8 +51,8 @@ export default function UploadInvoicePage() {
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
 
-  // Extraction results
-  const [invoiceId, setInvoiceId] = useState<string | null>(null);
+  // Extraction results - NO invoice is created until user saves/submits
+  const [tempFileData, setTempFileData] = useState<TempFileData | null>(null);
   const [extractedData, setExtractedData] = useState<ExtractedData | null>(null);
   const [confidence, setConfidence] = useState<Confidence | null>(null);
   const [vendors, setVendors] = useState<Vendor[]>([]);
@@ -76,31 +84,8 @@ export default function UploadInvoicePage() {
   });
 
   const [submitting, setSubmitting] = useState(false);
-  const [savedOrSubmitted, setSavedOrSubmitted] = useState(false);
-  // Use a ref to track savedOrSubmitted synchronously for cleanup effect
-  // This prevents race condition where state update hasn't propagated before unmount
-  const savedOrSubmittedRef = useRef(false);
 
-  // Warn user before leaving if they have unsaved work (but don't auto-delete)
-  // Auto-cleanup is handled by server-side cleanupAbandonedDrafts (5 min threshold)
-  useEffect(() => {
-    // Warn user before leaving if they have unsaved work
-    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (invoiceId && !savedOrSubmittedRef.current) {
-        e.preventDefault();
-        e.returnValue = 'You have an unsaved invoice. Are you sure you want to leave?';
-        return e.returnValue;
-      }
-    };
-
-    window.addEventListener('beforeunload', handleBeforeUnload);
-
-    return () => {
-      window.removeEventListener('beforeunload', handleBeforeUnload);
-      // NOTE: We no longer auto-delete on unmount - server handles cleanup
-      // This prevents race conditions with Save/Submit operations
-    };
-  }, [invoiceId]);
+  // No beforeunload warning needed - no invoice is created until user explicitly saves
 
   // Load pharmacies on mount
   useEffect(() => {
@@ -177,7 +162,7 @@ export default function UploadInvoicePage() {
     setError('');
   };
 
-  // Upload and parse
+  // Upload and extract (NO invoice is created yet - just extracts data)
   const handleUploadAndParse = async () => {
     if (!file || !selectedPharmacyId) {
       setError('Please select a pharmacy and upload a file');
@@ -192,8 +177,9 @@ export default function UploadInvoicePage() {
       formDataObj.append('file', file);
       formDataObj.append('pharmacyId', selectedPharmacyId);
 
+      // Use extract-only endpoint - no invoice is created
       const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4000'}/extraction/upload-and-parse`,
+        `${process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4000'}/extraction/extract-only`,
         {
           method: 'POST',
           headers: {
@@ -210,8 +196,13 @@ export default function UploadInvoicePage() {
 
       const data = await res.json();
 
-      // Store results
-      setInvoiceId(data.invoice.id);
+      // Store temp file data (no invoice yet)
+      setTempFileData({
+        tempFilePath: data.tempFilePath,
+        originalName: data.originalName,
+        mimeType: data.mimeType,
+        sizeBytes: data.sizeBytes,
+      });
       setExtractedData(data.extractedData);
       setConfidence(data.confidence);
       setVendors(data.vendors || []);
@@ -253,9 +244,13 @@ export default function UploadInvoicePage() {
           notesParts.push(`Send Payment to: ${data.extractedData.paymentAddress}`);
         }
 
+        // Find the default "Vendor Invoice" type if no type was matched
+        const defaultInvoiceTypeId = data.matchedInvoiceTypeId ||
+          (data.invoiceTypes || []).find((t: InvoiceType) => t.name === 'Vendor Invoice')?.id || '';
+
         setFormData({
           vendorId: data.matchedVendorId || '',
-          invoiceTypeId: data.matchedInvoiceTypeId || '',
+          invoiceTypeId: defaultInvoiceTypeId,
           invoiceNumber: data.extractedData.invoiceNumber || '',
           accountNumber: data.extractedData.accountNumber || '',
           documentType: data.extractedData.documentType || 'INVOICE',
@@ -312,14 +307,15 @@ export default function UploadInvoicePage() {
     }
   };
 
-  // Submit invoice
+  // Submit invoice - NOW creates the invoice from the temp file
   const handleSubmit = async (asDraft: boolean = false) => {
-    if (!invoiceId) {
-      console.error('handleSubmit: No invoiceId');
+    if (!tempFileData) {
+      console.error('handleSubmit: No temp file data');
+      setError('No file uploaded. Please upload a file first.');
       return;
     }
 
-    console.log(`handleSubmit: Starting ${asDraft ? 'Save as Draft' : 'Submit'} for invoice ${invoiceId}`);
+    console.log(`handleSubmit: Creating invoice ${asDraft ? 'as Draft' : 'and Submitting'}`);
     setSubmitting(true);
     setError('');
 
@@ -330,57 +326,41 @@ export default function UploadInvoicePage() {
         notes = notes ? `${notes}\nDue upon Receipt` : 'Due upon Receipt';
       }
 
-      const updatePayload = {
-        vendorId: formData.vendorId || null,
-        invoiceTypeId: formData.invoiceTypeId || null,
-        invoiceNumber: formData.invoiceNumber || null,
-        invoiceDate: formData.invoiceDate || null,
-        dueDate: dueUponReceipt ? formData.invoiceDate : (formData.dueDate || null),
-        amount: formData.amount ? parseFloat(formData.amount) : null,
+      // Create invoice from temp file
+      const createPayload = {
+        pharmacyId: selectedPharmacyId,
+        tempFilePath: tempFileData.tempFilePath,
+        originalName: tempFileData.originalName,
+        mimeType: tempFileData.mimeType,
+        sizeBytes: tempFileData.sizeBytes,
+        vendorId: formData.vendorId || undefined,
+        invoiceTypeId: formData.invoiceTypeId || undefined,
+        invoiceNumber: formData.invoiceNumber || undefined,
+        accountNumber: formData.accountNumber || undefined,
+        invoiceDate: formData.invoiceDate || undefined,
+        dueDate: dueUponReceipt ? formData.invoiceDate : (formData.dueDate || undefined),
+        amount: formData.amount ? parseFloat(formData.amount) : undefined,
         currency: formData.currency,
-        notes: notes || null,
+        notes: notes || undefined,
+        submit: !asDraft, // Submit if not saving as draft
       };
 
-      console.log('handleSubmit: PATCH payload:', updatePayload);
+      console.log('handleSubmit: Creating invoice with payload:', createPayload);
 
-      // Update invoice with form data
-      const updateRes = await apiFetch(`/invoices/${invoiceId}`, {
-        method: 'PATCH',
-        body: JSON.stringify(updatePayload),
+      const res = await apiFetch('/extraction/create-from-temp', {
+        method: 'POST',
+        body: JSON.stringify(createPayload),
       });
 
-      console.log('handleSubmit: PATCH response status:', updateRes.status);
-
-      if (!updateRes.ok) {
-        const errData = await updateRes.json();
-        console.error('handleSubmit: PATCH failed:', errData);
-        throw new Error(errData.message || 'Failed to update invoice');
+      if (!res.ok) {
+        const errData = await res.json();
+        console.error('handleSubmit: Create failed:', errData);
+        throw new Error(errData.message || 'Failed to create invoice');
       }
 
-      const updatedInvoice = await updateRes.json();
-      console.log('handleSubmit: Invoice updated successfully:', updatedInvoice);
+      const invoice = await res.json();
+      console.log('handleSubmit: Invoice created successfully:', invoice);
 
-      // Submit if not saving as draft
-      if (!asDraft) {
-        console.log('handleSubmit: Submitting invoice...');
-        const submitRes = await apiFetch(`/invoices/${invoiceId}/submit`, {
-          method: 'POST',
-        });
-
-        if (!submitRes.ok) {
-          const errData = await submitRes.json();
-          throw new Error(errData.message || 'Failed to submit invoice');
-        }
-        console.log('handleSubmit: Invoice submitted successfully');
-      } else {
-        console.log('handleSubmit: Saved as draft (no submit call)');
-      }
-
-      // Mark as saved/submitted to prevent cleanup
-      savedOrSubmittedRef.current = true;
-      setSavedOrSubmitted(true);
-
-      console.log('handleSubmit: Redirecting to invoice list...');
       // Redirect to invoice list
       router.push('/dashboard/pharmacy/invoices');
     } catch (err: any) {
@@ -420,7 +400,7 @@ export default function UploadInvoicePage() {
 
   return (
     <div className="max-w-4xl mx-auto">
-      <div className="mb-6">
+      <div className="mb-4">
         <Link
           href="/dashboard/pharmacy/invoices"
           className="text-blue-600 hover:text-blue-800 text-sm"
@@ -429,24 +409,24 @@ export default function UploadInvoicePage() {
         </Link>
       </div>
 
-      <h1 className="text-2xl font-bold text-gray-900 mb-6">Upload Invoice</h1>
+      <h1 className="text-xl font-bold text-gray-900 mb-4">Upload Invoice</h1>
 
       {error && (
-        <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
+        <div className="mb-3 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
           {error}
         </div>
       )}
 
       {/* Step 1: Select Pharmacy and Upload File */}
-      {!invoiceId && (
-        <div className="bg-white rounded-lg shadow p-6">
-          <h2 className="text-lg font-semibold mb-4">
-            Step 1: Upload Invoice Document
+      {!tempFileData && (
+        <div className="bg-white rounded-lg shadow p-4">
+          <h2 className="text-base font-semibold mb-3">
+            Upload Invoice Document
           </h2>
 
           {/* Pharmacy Selection */}
           {pharmacies.length > 1 && (
-            <div className="mb-4">
+            <div className="mb-3">
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Select Pharmacy
               </label>
@@ -467,7 +447,7 @@ export default function UploadInvoicePage() {
 
           {/* File Upload */}
           <div
-            className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
+            className={`border-2 border-dashed rounded-lg p-4 text-center transition-colors ${
               dragActive
                 ? 'border-blue-500 bg-blue-50'
                 : 'border-gray-300 hover:border-gray-400'
@@ -478,95 +458,51 @@ export default function UploadInvoicePage() {
             onDrop={handleDrop}
           >
             {file ? (
-              <div>
-                <div className="text-green-600 mb-2">
-                  <svg
-                    className="w-12 h-12 mx-auto"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
-                    />
-                  </svg>
+              <div className="flex items-center justify-center gap-3">
+                <svg className="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <div className="text-left">
+                  <p className="font-medium text-gray-900 text-sm">{file.name}</p>
+                  <p className="text-xs text-gray-500">{(file.size / 1024 / 1024).toFixed(2)} MB</p>
                 </div>
-                <p className="font-medium text-gray-900">{file.name}</p>
-                <p className="text-sm text-gray-500">
-                  {(file.size / 1024 / 1024).toFixed(2)} MB
-                </p>
-                <button
-                  onClick={() => setFile(null)}
-                  className="mt-2 text-sm text-red-600 hover:text-red-800"
-                >
-                  Remove
-                </button>
+                <button onClick={() => setFile(null)} className="text-sm text-red-600 hover:text-red-800 ml-2">Remove</button>
               </div>
             ) : (
-              <div>
-                <svg
-                  className="w-12 h-12 mx-auto text-gray-400 mb-4"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
-                  />
+              <div className="flex flex-col items-center py-2">
+                <svg className="w-8 h-8 text-gray-400 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
                 </svg>
-                <p className="text-gray-600 mb-2">
+                <p className="text-gray-600 text-sm">
                   Drag and drop your invoice here, or{' '}
                   <label className="text-blue-600 hover:text-blue-800 cursor-pointer">
                     browse
-                    <input
-                      type="file"
-                      className="hidden"
-                      accept=".pdf,.jpg,.jpeg,.png,.gif,.webp,.doc,.docx"
-                      onChange={handleFileChange}
-                    />
+                    <input type="file" className="hidden" accept=".pdf,.jpg,.jpeg,.png,.gif,.webp,.doc,.docx" onChange={handleFileChange} />
                   </label>
                 </p>
-                <p className="text-sm text-gray-500">
-                  Supports PDF, images (JPG, PNG), and Word documents (max 10MB)
-                </p>
+                <p className="text-xs text-gray-500 mt-1">PDF, images, or Word documents (max 10MB)</p>
               </div>
             )}
           </div>
 
           {/* Upload Button */}
-          <div className="mt-6">
+          <div className="mt-4">
             <button
               onClick={() => {
                 if (!uploading) handleUploadAndParse();
               }}
               disabled={!file || !selectedPharmacyId || uploading}
-              className="w-full py-3 px-4 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              className="w-full py-2 px-4 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
               {uploading ? (
                 <>
-                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
                   <span>Parsing Invoice with AI...</span>
                 </>
               ) : (
                 <>
-                  <svg
-                    className="w-5 h-5"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"
-                    />
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
                   </svg>
                   <span>Upload & Parse with AI</span>
                 </>
@@ -577,30 +513,16 @@ export default function UploadInvoicePage() {
       )}
 
       {/* Step 2: Review and Edit Extracted Data */}
-      {invoiceId && (
-        <div className="bg-white rounded-lg shadow p-6">
-          <h2 className="text-lg font-semibold mb-4">
-            Step 2: Review & Edit Invoice Details
-          </h2>
+      {tempFileData && (
+        <div className="bg-white rounded-lg shadow p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-base font-semibold">Review & Edit Invoice Details</h2>
+            {extractedData && (
+              <span className="text-xs text-green-600 font-medium">✓ AI extracted</span>
+            )}
+          </div>
 
-          {extractedData && (
-            <div className="mb-4 p-4 bg-green-50 border border-green-200 rounded-lg">
-              <p className="text-green-700 font-medium">
-                ✓ AI successfully extracted invoice data. Please review and make
-                any corrections below.
-              </p>
-            </div>
-          )}
-
-          {!extractedData && (
-            <div className="mb-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
-              <p className="text-yellow-700">
-                AI extraction failed. Please fill in the invoice details manually.
-              </p>
-            </div>
-          )}
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             {/* Vendor */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -775,7 +697,8 @@ export default function UploadInvoicePage() {
                   </span>
                 )}
               </label>
-              <div className="flex gap-2">
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 font-medium">$</span>
                 <input
                   type="number"
                   step="0.01"
@@ -783,21 +706,9 @@ export default function UploadInvoicePage() {
                   onChange={(e) =>
                     setFormData({ ...formData, amount: e.target.value })
                   }
-                  className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full pl-7 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   placeholder="0.00"
                 />
-                <select
-                  value={formData.currency}
-                  onChange={(e) =>
-                    setFormData({ ...formData, currency: e.target.value })
-                  }
-                  className="w-24 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                >
-                  <option value="USD">USD</option>
-                  <option value="EUR">EUR</option>
-                  <option value="GBP">GBP</option>
-                  <option value="CAD">CAD</option>
-                </select>
               </div>
             </div>
 
@@ -835,9 +746,22 @@ export default function UploadInvoicePage() {
                   </span>
                 )}
               </label>
+              {!dueUponReceipt && (
+                <input
+                  type="date"
+                  value={formData.dueDate}
+                  onChange={(e) =>
+                    setFormData({ ...formData, dueDate: e.target.value })
+                  }
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                />
+              )}
+              {dueUponReceipt && (
+                <p className="text-sm text-amber-600 italic py-2">Payment due immediately upon receipt</p>
+              )}
 
-              {/* Due Upon Receipt Checkbox */}
-              <div className="flex items-center mb-2">
+              {/* Due Upon Receipt Checkbox - Below Due Date */}
+              <div className="flex items-center mt-2">
                 <input
                   type="checkbox"
                   id="dueUponReceipt"
@@ -854,66 +778,45 @@ export default function UploadInvoicePage() {
                   Due upon Receipt
                 </label>
               </div>
+            </div>
 
-              {!dueUponReceipt && (
-                <input
-                  type="date"
-                  value={formData.dueDate}
-                  onChange={(e) =>
-                    setFormData({ ...formData, dueDate: e.target.value })
-                  }
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                />
-              )}
-              {dueUponReceipt && (
-                <p className="text-sm text-amber-600 italic">Payment due immediately upon receipt</p>
-              )}
+            {/* Notes */}
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Notes (optional)
+              </label>
+              <textarea
+                value={formData.notes}
+                onChange={(e) =>
+                  setFormData({ ...formData, notes: e.target.value })
+                }
+                rows={2}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                placeholder="Any additional notes..."
+              />
             </div>
           </div>
 
-          {/* Notes */}
-          <div className="mt-4">
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Notes (optional)
-            </label>
-            <textarea
-              value={formData.notes}
-              onChange={(e) =>
-                setFormData({ ...formData, notes: e.target.value })
-              }
-              rows={3}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              placeholder="Any additional notes..."
-            />
-          </div>
-
           {/* Action Buttons */}
-          <div className="mt-6 flex flex-col sm:flex-row gap-3">
+          <div className="mt-4 flex flex-col sm:flex-row gap-2">
             <button
               onClick={() => handleSubmit(false)}
               disabled={submitting}
-              className="flex-1 py-3 px-4 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex-1 py-2 px-4 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {submitting ? 'Submitting...' : 'Submit for Approval'}
             </button>
             <button
               onClick={() => handleSubmit(true)}
               disabled={submitting}
-              className="flex-1 py-3 px-4 bg-gray-100 text-gray-700 rounded-lg font-medium hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex-1 py-2 px-4 bg-gray-100 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Save as Draft
             </button>
             <button
-              onClick={async () => {
-                // Delete the draft invoice if it exists
-                if (invoiceId) {
-                  try {
-                    await apiFetch(`/invoices/${invoiceId}`, { method: 'DELETE' });
-                  } catch (err) {
-                    console.error('Failed to delete draft invoice:', err);
-                  }
-                }
-                setInvoiceId(null);
+              onClick={() => {
+                // Just reset state - no invoice to delete since we use extract-only
+                setTempFileData(null);
                 setFile(null);
                 setExtractedData(null);
                 setConfidence(null);
@@ -933,7 +836,7 @@ export default function UploadInvoicePage() {
                 });
               }}
               disabled={submitting}
-              className="py-3 px-4 border border-gray-300 text-gray-700 rounded-lg font-medium hover:bg-gray-50"
+              className="py-2 px-4 border border-gray-300 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50"
             >
               Start Over
             </button>

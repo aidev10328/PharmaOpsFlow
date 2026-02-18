@@ -39,6 +39,25 @@ export interface UploadAndParseDto {
   userId: string;
 }
 
+export interface ExtractOnlyDto {
+  pharmacyId: string;
+  file: Express.Multer.File;
+  userId: string;
+}
+
+export interface ExtractOnlyResult {
+  tempFilePath: string;
+  originalName: string;
+  mimeType: string;
+  sizeBytes: number;
+  extractedData: ExtractedInvoiceData | null;
+  confidence: ExtractionConfidence | null;
+  matchedVendorId?: string;
+  matchedInvoiceTypeId?: string;
+  vendors: any[];
+  invoiceTypes: any[];
+}
+
 export class ApplyExtractionDto {
   @IsOptional()
   @IsUUID()
@@ -335,6 +354,7 @@ export class ExtractionService {
       data: {
         pharmacyId,
         status: 'DRAFT',
+        entryMethod: 'AI_EXTRACTION',
         extractionStatus: ExtractionStatus.PENDING,
       },
     });
@@ -754,5 +774,253 @@ export class ExtractionService {
       default:
         return 'unknown';
     }
+  }
+
+  /**
+   * Extract invoice data from a file WITHOUT creating an invoice
+   * The file is stored temporarily and can be used later when creating the invoice
+   * This prevents orphaned draft invoices when users abandon the upload page
+   */
+  async extractOnly(dto: ExtractOnlyDto): Promise<ExtractOnlyResult> {
+    const { pharmacyId, file } = dto;
+
+    // Check if AI provider is configured
+    if (!this.aiProvider.isConfigured()) {
+      throw new BadRequestException(
+        `AI provider (${this.aiProvider.name}) is not configured. Please set the required environment variables.`,
+      );
+    }
+
+    // Get pharmacy info
+    const pharmacy = await this.prisma.pharmacy.findUnique({
+      where: { id: pharmacyId },
+      select: { id: true, orgId: true, name: true },
+    });
+
+    if (!pharmacy) {
+      throw new NotFoundException('Pharmacy not found');
+    }
+
+    // Upload the file to temporary storage (using a temp prefix)
+    const tempFilePath = `temp-invoices/${pharmacyId}/${Date.now()}-${file.originalname}`;
+    await this.storageProvider.uploadFile({
+      file: file.buffer,
+      originalName: file.originalname,
+      mimeType: file.mimetype,
+      storagePath: tempFilePath,
+    });
+
+    this.logger.log(`Uploaded temp file ${tempFilePath} for extract-only`);
+
+    try {
+      // Get signed download URL for the file
+      const downloadUrl = await this.storageProvider.getSignedDownloadUrl(
+        tempFilePath,
+        3600,
+      );
+
+      // Get known vendors and invoice types for context
+      const [vendors, invoiceTypes] = await Promise.all([
+        this.prisma.vendor.findMany({
+          where: { isActive: true },
+          select: { id: true, name: true },
+        }),
+        this.prisma.invoiceType.findMany({
+          where: { isActive: true },
+          select: { id: true, name: true, code: true },
+        }),
+      ]);
+
+      // Build extraction context
+      const context: ExtractionContext = {
+        downloadUrl,
+        mimeType: file.mimetype,
+        fileName: file.originalname,
+        orgContext: {
+          orgId: pharmacy.orgId,
+          orgName: pharmacy.name,
+        },
+        knownVendors: vendors,
+        knownInvoiceTypes: invoiceTypes,
+      };
+
+      // Call AI provider
+      const result = await this.aiProvider.extractInvoiceFromFile(context);
+
+      // Match vendor and invoice type
+      const vendorMatch = fuzzyMatchVendor(result.extracted.vendorName, vendors);
+      const typeMatch = mapInvoiceType(result.extracted.invoiceType, invoiceTypes);
+
+      this.logger.log(`Extract-only completed for temp file ${tempFilePath}`);
+
+      return {
+        tempFilePath,
+        originalName: file.originalname,
+        mimeType: file.mimetype,
+        sizeBytes: file.size,
+        extractedData: result.extracted,
+        confidence: result.confidence,
+        matchedVendorId: vendorMatch?.vendorId,
+        matchedInvoiceTypeId: typeMatch?.invoiceTypeId,
+        vendors,
+        invoiceTypes,
+      };
+    } catch (error) {
+      this.logger.error(`Extract-only failed: ${error.message}`);
+
+      // Still return the file path so user can manually fill data
+      const [vendors, invoiceTypes] = await Promise.all([
+        this.prisma.vendor.findMany({
+          where: { isActive: true },
+          select: { id: true, name: true },
+        }),
+        this.prisma.invoiceType.findMany({
+          where: { isActive: true },
+          select: { id: true, name: true, code: true },
+        }),
+      ]);
+
+      return {
+        tempFilePath,
+        originalName: file.originalname,
+        mimeType: file.mimetype,
+        sizeBytes: file.size,
+        extractedData: null,
+        confidence: null,
+        vendors,
+        invoiceTypes,
+      };
+    }
+  }
+
+  /**
+   * Create an invoice from a temporary file (used after extractOnly)
+   * Moves the file from temp storage to permanent storage and creates the invoice
+   */
+  async createInvoiceFromTempFile(params: {
+    pharmacyId: string;
+    tempFilePath: string;
+    originalName: string;
+    mimeType: string;
+    sizeBytes: number;
+    userId: string;
+    invoiceData: {
+      vendorId?: string;
+      invoiceTypeId?: string;
+      invoiceNumber?: string;
+      accountNumber?: string;
+      documentType?: 'INVOICE' | 'STATEMENT' | 'CREDIT_MEMO' | 'OTHER';
+      invoiceDate?: string;
+      dueDate?: string;
+      amount?: number;
+      currency?: string;
+      description?: string;
+      notes?: string;
+    };
+    submit?: boolean;
+  }): Promise<any> {
+    const { pharmacyId, tempFilePath, originalName, mimeType, sizeBytes, userId, invoiceData, submit } = params;
+
+    // Create the invoice
+    const invoice = await this.prisma.invoice.create({
+      data: {
+        pharmacyId,
+        status: submit ? 'SUBMITTED' : 'DRAFT',
+        entryMethod: 'AI_EXTRACTION',
+        vendorId: invoiceData.vendorId || undefined,
+        invoiceTypeId: invoiceData.invoiceTypeId || undefined,
+        invoiceNumber: invoiceData.invoiceNumber || undefined,
+        accountNumber: invoiceData.accountNumber || undefined,
+        documentType: invoiceData.documentType || 'INVOICE',
+        invoiceDate: invoiceData.invoiceDate ? new Date(invoiceData.invoiceDate) : undefined,
+        dueDate: invoiceData.dueDate ? new Date(invoiceData.dueDate) : undefined,
+        amount: invoiceData.amount || undefined,
+        currency: invoiceData.currency || 'USD',
+        description: invoiceData.description || undefined,
+        notes: invoiceData.notes || undefined,
+      },
+    });
+
+    this.logger.log(`Created invoice ${invoice.id} from temp file`);
+
+    // Move the file from temp storage to permanent storage
+    const permanentPath = `invoices/${invoice.id}/${Date.now()}-${originalName}`;
+
+    // Download from temp location and re-upload to permanent location
+    try {
+      const downloadUrl = await this.storageProvider.getSignedDownloadUrl(tempFilePath, 300);
+      const response = await fetch(downloadUrl);
+      if (!response.ok) {
+        throw new Error(`Failed to download temp file: ${response.statusText}`);
+      }
+      const fileBuffer = Buffer.from(await response.arrayBuffer());
+
+      await this.storageProvider.uploadFile({
+        file: fileBuffer,
+        originalName,
+        mimeType,
+        storagePath: permanentPath,
+      });
+
+      // Delete temp file
+      await this.storageProvider.deleteFile(tempFilePath);
+    } catch (err) {
+      this.logger.warn(`Failed to move temp file ${tempFilePath}: ${err.message}`);
+      // Continue anyway - the file might still be usable from temp location
+    }
+
+    // Create file record
+    await this.prisma.invoiceFile.create({
+      data: {
+        invoiceId: invoice.id,
+        originalName,
+        mimeType,
+        sizeBytes,
+        storagePath: permanentPath,
+        uploadedByUserId: userId,
+      },
+    });
+
+    // Log event
+    await this.prisma.invoiceEvent.create({
+      data: {
+        invoiceId: invoice.id,
+        eventType: InvoiceEventType.CREATED,
+        userId,
+        notes: submit ? 'Invoice created and submitted' : 'Invoice created as draft',
+        metadata: { fileName: originalName },
+      },
+    });
+
+    if (submit) {
+      await this.prisma.invoiceEvent.create({
+        data: {
+          invoiceId: invoice.id,
+          eventType: InvoiceEventType.SUBMITTED,
+          userId,
+          notes: 'Invoice submitted for approval',
+        },
+      });
+    }
+
+    return this.prisma.invoice.findUnique({
+      where: { id: invoice.id },
+      include: {
+        pharmacy: { select: { id: true, name: true, code: true } },
+        vendor: { select: { id: true, name: true } },
+        invoiceType: { select: { id: true, name: true } },
+        files: true,
+      },
+    });
+  }
+
+  /**
+   * Clean up old temporary files (called by cron job or manually)
+   */
+  async cleanupTempFiles(maxAgeMinutes: number = 60): Promise<{ deleted: number }> {
+    // This would require listing files in temp-invoices/ and deleting old ones
+    // Implementation depends on storage provider capabilities
+    this.logger.log(`Temp file cleanup requested (maxAge: ${maxAgeMinutes} minutes)`);
+    return { deleted: 0 }; // Placeholder - implement based on storage provider
   }
 }

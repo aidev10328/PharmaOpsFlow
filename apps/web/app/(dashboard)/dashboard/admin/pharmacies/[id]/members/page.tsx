@@ -241,7 +241,7 @@ export default function PharmacyMembersPage() {
                 </select>
               </div>
               <div className="flex items-end">
-                <button type="submit" disabled={adding} className="btn-primary">
+                <button type="submit" disabled={adding} className="btn-accent">
                   {adding ? 'Adding...' : 'Add Member'}
                 </button>
               </div>

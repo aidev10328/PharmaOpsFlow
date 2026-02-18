@@ -1,10 +1,9 @@
 'use client';
 
-import { useAuth, Role } from '../../../../../../components/AuthProvider';
+import { useAuth } from '../../../../../../components/AuthProvider';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { apiFetch } from '../../../../../../lib/api';
-import Link from 'next/link';
 
 type InvoiceType = {
   id: string;
@@ -121,13 +120,13 @@ export default function InvoiceTypesPage() {
 
   if (loading || loadingData) {
     return (
-      <div className="flex items-center justify-center py-20">
-        <div className="flex items-center gap-3 text-gray-500">
-          <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
+      <div className="flex items-center justify-center py-12">
+        <div className="flex items-center gap-2 text-gray-400">
+          <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
           </svg>
-          <span className="text-sm font-medium">Loading...</span>
+          <span className="text-sm">Loading...</span>
         </div>
       </div>
     );
@@ -136,50 +135,44 @@ export default function InvoiceTypesPage() {
   if (!user || user.role !== 'ADMIN') return null;
 
   return (
-    <div className="max-w-5xl mx-auto space-y-6">
-      <div>
-        <Link href="/dashboard/admin" className="text-link text-sm">&larr; Back to Admin</Link>
-      </div>
-
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+    <div className="max-w-5xl mx-auto space-y-3">
+      {/* Header */}
+      <div className="flex items-center justify-between">
         <div>
-          <h1 className="page-title">Invoice Types</h1>
-          <p className="text-sm text-gray-500 mt-1">Manage invoice categories for your organization</p>
+          <h1 className="text-lg font-heading font-bold text-gray-900">Invoice Types</h1>
+          <p className="text-xs text-gray-500">{types.length} types configured</p>
         </div>
-        <button onClick={() => { setShowCreate(!showCreate); setError(null); setSuccess(null); }} className="btn-primary">
-          {showCreate ? 'Cancel' : 'New Invoice Type'}
+        <button onClick={() => { setShowCreate(!showCreate); setError(null); setSuccess(null); }} className="btn-primary text-xs px-3 py-1.5">
+          {showCreate ? 'Cancel' : '+ Add Type'}
         </button>
       </div>
 
-      {error && <div className="alert-error">{error}</div>}
-      {success && <div className="alert-success">{success}</div>}
+      {error && <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded text-xs">{error}</div>}
+      {success && <div className="bg-green-50 border border-green-200 text-green-700 px-3 py-2 rounded text-xs">{success}</div>}
 
       {/* Create Form */}
       {showCreate && (
-        <div className="card p-5">
-          <h3 className="text-sm font-heading font-semibold text-gray-900 mb-4">Create Invoice Type</h3>
-          <form onSubmit={handleCreate} className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="card p-3">
+          <h3 className="text-xs font-semibold text-gray-900 mb-2">New Invoice Type</h3>
+          <form onSubmit={handleCreate} className="grid grid-cols-2 md:grid-cols-4 gap-2">
             <div>
-              <label className="field-label">Name <span className="text-red-500">*</span></label>
-              <input type="text" value={createForm.name} onChange={e => setCreateForm(f => ({ ...f, name: e.target.value }))} className="input-field" required placeholder="e.g., Rent" />
+              <label className="block text-[10px] font-medium text-gray-700 mb-0.5">Name *</label>
+              <input type="text" value={createForm.name} onChange={e => setCreateForm(f => ({ ...f, name: e.target.value }))} className="input-field text-xs py-1.5" required placeholder="e.g., Rent" />
             </div>
             <div>
-              <label className="field-label">Code <span className="text-red-500">*</span></label>
-              <input type="text" value={createForm.code} onChange={e => setCreateForm(f => ({ ...f, code: e.target.value.toUpperCase() }))} className="input-field font-mono" required placeholder="e.g., RENT" maxLength={50} />
-              <p className="text-xs text-gray-400 mt-1">Immutable after creation</p>
+              <label className="block text-[10px] font-medium text-gray-700 mb-0.5">Code *</label>
+              <input type="text" value={createForm.code} onChange={e => setCreateForm(f => ({ ...f, code: e.target.value.toUpperCase() }))} className="input-field text-xs py-1.5 font-mono" required placeholder="RENT" maxLength={50} />
             </div>
-            <div className="md:col-span-2">
-              <label className="field-label">Description</label>
-              <input type="text" value={createForm.description} onChange={e => setCreateForm(f => ({ ...f, description: e.target.value }))} className="input-field" placeholder="Optional description" />
+            <div>
+              <label className="block text-[10px] font-medium text-gray-700 mb-0.5">Description</label>
+              <input type="text" value={createForm.description} onChange={e => setCreateForm(f => ({ ...f, description: e.target.value }))} className="input-field text-xs py-1.5" placeholder="Optional" />
             </div>
-            <div className="md:col-span-2 flex items-center gap-3">
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input type="checkbox" checked={createForm.isRequired} onChange={e => setCreateForm(f => ({ ...f, isRequired: e.target.checked }))} className="rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
-                <span className="text-sm text-gray-700">Required for SLA compliance</span>
+            <div className="flex items-end gap-2">
+              <label className="flex items-center gap-1 cursor-pointer">
+                <input type="checkbox" checked={createForm.isRequired} onChange={e => setCreateForm(f => ({ ...f, isRequired: e.target.checked }))} className="rounded border-gray-300 text-primary-600 w-3 h-3" />
+                <span className="text-[10px] text-gray-700">Required</span>
               </label>
-            </div>
-            <div className="md:col-span-2">
-              <button type="submit" disabled={creating} className="btn-primary">{creating ? 'Creating...' : 'Create Invoice Type'}</button>
+              <button type="submit" disabled={creating} className="btn-accent text-xs px-3 py-1.5">{creating ? '...' : 'Create'}</button>
             </div>
           </form>
         </div>
@@ -187,81 +180,75 @@ export default function InvoiceTypesPage() {
 
       {/* Table */}
       <div className="card overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Code</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden md:table-cell">Description</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Required</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden md:table-cell">Invoices</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {types.length === 0 ? (
-                <tr>
-                  <td colSpan={7} className="px-4 py-8 text-center text-sm text-gray-500">No invoice types configured yet.</td>
-                </tr>
-              ) : types.map((t) => (
-                <tr key={t.id} className={`hover:bg-gray-50 ${!t.isActive ? 'opacity-50' : ''}`}>
-                  <td className="px-4 py-3 text-sm font-mono text-gray-900">{t.code}</td>
-                  <td className="px-4 py-3 text-sm text-gray-900">
-                    {editingId === t.id ? (
-                      <input type="text" value={editForm.name} onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))} className="input-field py-1 text-sm w-40" />
-                    ) : t.name}
-                  </td>
-                  <td className="px-4 py-3 text-sm text-gray-500 hidden md:table-cell">
-                    {editingId === t.id ? (
-                      <input type="text" value={editForm.description} onChange={e => setEditForm(f => ({ ...f, description: e.target.value }))} className="input-field py-1 text-sm w-48" placeholder="Description" />
-                    ) : (t.description || '-')}
-                  </td>
-                  <td className="px-4 py-3 text-sm">
-                    {editingId === t.id ? (
-                      <label className="flex items-center gap-1 cursor-pointer">
-                        <input type="checkbox" checked={editForm.isRequired} onChange={e => setEditForm(f => ({ ...f, isRequired: e.target.checked }))} className="rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
-                        <span className="text-xs">Required</span>
-                      </label>
+        <table className="min-w-full text-xs">
+          <thead className="bg-gray-50">
+            <tr>
+              <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase">Code</th>
+              <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase">Name</th>
+              <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase hidden md:table-cell">Description</th>
+              <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase">Required</th>
+              <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase">Status</th>
+              <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase hidden md:table-cell">Invoices</th>
+              <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase">Actions</th>
+            </tr>
+          </thead>
+          <tbody className="bg-white divide-y divide-gray-100">
+            {types.length === 0 ? (
+              <tr><td colSpan={7} className="px-3 py-6 text-center text-gray-400">No invoice types configured</td></tr>
+            ) : types.map((t) => (
+              <tr key={t.id} className={`hover:bg-gray-50 ${!t.isActive ? 'opacity-50' : ''}`}>
+                <td className="px-3 py-2 font-mono text-gray-900">{t.code}</td>
+                <td className="px-3 py-2 text-gray-900">
+                  {editingId === t.id ? (
+                    <input type="text" value={editForm.name} onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))} className="input-field py-1 text-xs w-28" />
+                  ) : t.name}
+                </td>
+                <td className="px-3 py-2 text-gray-500 hidden md:table-cell">
+                  {editingId === t.id ? (
+                    <input type="text" value={editForm.description} onChange={e => setEditForm(f => ({ ...f, description: e.target.value }))} className="input-field py-1 text-xs w-32" />
+                  ) : (t.description || '-')}
+                </td>
+                <td className="px-3 py-2">
+                  {editingId === t.id ? (
+                    <label className="flex items-center gap-1 cursor-pointer">
+                      <input type="checkbox" checked={editForm.isRequired} onChange={e => setEditForm(f => ({ ...f, isRequired: e.target.checked }))} className="rounded border-gray-300 text-primary-600 w-3 h-3" />
+                      <span className="text-[10px]">Req</span>
+                    </label>
+                  ) : (
+                    t.isRequired ? (
+                      <span className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-amber-50 text-amber-700">Required</span>
                     ) : (
-                      t.isRequired ? (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-700">Required</span>
-                      ) : (
-                        <span className="text-xs text-gray-400">Optional</span>
-                      )
+                      <span className="text-[10px] text-gray-400">Optional</span>
+                    )
+                  )}
+                </td>
+                <td className="px-3 py-2">
+                  <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-semibold ${t.isActive ? 'bg-emerald-50 text-emerald-700' : 'bg-gray-100 text-gray-500'}`}>
+                    {t.isActive ? 'Active' : 'Inactive'}
+                  </span>
+                </td>
+                <td className="px-3 py-2 text-gray-500 hidden md:table-cell">{t._count.invoices}</td>
+                <td className="px-3 py-2">
+                  <div className="flex items-center gap-1">
+                    {editingId === t.id ? (
+                      <>
+                        <button onClick={handleEdit} disabled={saving} className="text-[10px] px-1.5 py-0.5 rounded bg-green-500 text-white font-medium">{saving ? '...' : 'Save'}</button>
+                        <button onClick={() => setEditingId(null)} className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-600 font-medium">Cancel</button>
+                      </>
+                    ) : (
+                      <>
+                        <button onClick={() => startEdit(t)} className="text-[10px] px-1.5 py-0.5 rounded hover:bg-gray-100 text-gray-600">Edit</button>
+                        <button onClick={() => handleToggleActive(t)} className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${t.isActive ? 'text-red-600 hover:bg-red-50' : 'text-emerald-600 hover:bg-emerald-50'}`}>
+                          {t.isActive ? 'Disable' : 'Enable'}
+                        </button>
+                      </>
                     )}
-                  </td>
-                  <td className="px-4 py-3 text-sm">
-                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${t.isActive ? 'bg-emerald-50 text-emerald-700' : 'bg-gray-100 text-gray-500'}`}>
-                      {t.isActive ? 'Active' : 'Inactive'}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-sm text-gray-500 hidden md:table-cell">{t._count.invoices}</td>
-                  <td className="px-4 py-3 text-sm">
-                    <div className="flex items-center gap-2">
-                      {editingId === t.id ? (
-                        <>
-                          <form onSubmit={handleEdit} className="inline">
-                            <button type="submit" disabled={saving} className="text-xs px-2 py-1 rounded-md font-medium text-primary-600 hover:bg-primary-50">{saving ? 'Saving...' : 'Save'}</button>
-                          </form>
-                          <button onClick={() => setEditingId(null)} className="text-xs px-2 py-1 rounded-md font-medium text-gray-500 hover:bg-gray-100">Cancel</button>
-                        </>
-                      ) : (
-                        <>
-                          <button onClick={() => startEdit(t)} className="text-xs px-2 py-1 rounded-md font-medium text-primary-600 hover:bg-primary-50">Edit</button>
-                          <button onClick={() => handleToggleActive(t)} className={`text-xs px-2 py-1 rounded-md font-medium ${t.isActive ? 'text-red-600 hover:bg-red-50' : 'text-emerald-600 hover:bg-emerald-50'}`}>
-                            {t.isActive ? 'Deactivate' : 'Reactivate'}
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </div>
   );

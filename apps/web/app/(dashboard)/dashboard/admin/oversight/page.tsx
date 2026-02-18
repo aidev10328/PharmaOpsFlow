@@ -32,13 +32,13 @@ export default function OversightHubPage() {
 
   if (loading || loadingData) {
     return (
-      <div className="flex items-center justify-center py-20">
-        <div className="flex items-center gap-3 text-gray-500">
-          <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
+      <div className="flex items-center justify-center py-12">
+        <div className="flex items-center gap-2 text-gray-400">
+          <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
           </svg>
-          <span className="text-sm font-medium">Loading...</span>
+          <span className="text-sm">Loading...</span>
         </div>
       </div>
     );
@@ -63,7 +63,7 @@ export default function OversightHubPage() {
       color: 'text-primary-600',
       bgColor: 'bg-primary-50',
       icon: (
-        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
         </svg>
@@ -77,7 +77,7 @@ export default function OversightHubPage() {
       color: slaRate >= 90 ? 'text-emerald-600' : slaRate >= 70 ? 'text-amber-600' : 'text-red-600',
       bgColor: slaRate >= 90 ? 'bg-emerald-50' : slaRate >= 70 ? 'bg-amber-50' : 'bg-red-50',
       icon: (
-        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
         </svg>
       ),
@@ -90,7 +90,7 @@ export default function OversightHubPage() {
       color: extractionFailed > 0 ? 'text-red-600' : 'text-emerald-600',
       bgColor: extractionFailed > 0 ? 'bg-red-50' : 'bg-emerald-50',
       icon: (
-        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
         </svg>
       ),
@@ -103,7 +103,7 @@ export default function OversightHubPage() {
       color: 'text-violet-600',
       bgColor: 'bg-violet-50',
       icon: (
-        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
         </svg>
       ),
@@ -111,40 +111,34 @@ export default function OversightHubPage() {
   ];
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
-      <div>
-        <Link href="/dashboard/admin" className="text-link text-sm">&larr; Back to Admin</Link>
-      </div>
-
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+    <div className="max-w-4xl mx-auto space-y-3">
+      <div className="flex items-center justify-between">
         <div>
-          <h1 className="page-title">Operational Oversight</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            System health monitoring, audit trails, and safe interventions
-          </p>
+          <h1 className="text-lg font-heading font-bold text-gray-900">Operational Oversight</h1>
+          <p className="text-xs text-gray-500">System health monitoring, audit trails, and safe interventions</p>
         </div>
-        <span className="inline-flex items-center px-3 py-1.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-700">
+        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-50 text-amber-700">
           Admin Only
         </span>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
         {cards.map((card) => (
           <Link
             key={card.href}
             href={card.href}
-            className="card p-6 hover:shadow-md transition-all group"
+            className="card p-3 hover:shadow-md transition-all group"
           >
-            <div className="flex items-start justify-between mb-4">
-              <div className={`w-10 h-10 rounded-lg ${card.bgColor} flex items-center justify-center ${card.color}`}>
+            <div className="flex items-start justify-between mb-2">
+              <div className={`w-8 h-8 rounded-lg ${card.bgColor} flex items-center justify-center ${card.color}`}>
                 {card.icon}
               </div>
-              <span className={`text-sm font-semibold ${card.color}`}>{card.stat}</span>
+              <span className={`text-xs font-semibold ${card.color}`}>{card.stat}</span>
             </div>
-            <h3 className="text-sm font-heading font-semibold text-gray-900 mb-1">
+            <h3 className="text-xs font-heading font-semibold text-gray-900 mb-0.5">
               {card.title}
             </h3>
-            <p className="text-xs text-gray-500">{card.description}</p>
+            <p className="text-[10px] text-gray-500">{card.description}</p>
           </Link>
         ))}
       </div>

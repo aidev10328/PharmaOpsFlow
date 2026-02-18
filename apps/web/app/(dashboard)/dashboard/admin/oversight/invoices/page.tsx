@@ -2,9 +2,8 @@
 
 import { useAuth } from '../../../../../../components/AuthProvider';
 import { useRouter } from 'next/navigation';
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { apiFetch } from '../../../../../../lib/api';
-import Link from 'next/link';
 
 const STATUS_COLORS: Record<string, string> = {
   DRAFT: 'bg-gray-100 text-gray-700',
@@ -19,6 +18,40 @@ const STATUS_COLORS: Record<string, string> = {
 type Pharmacy = { id: string; name: string; code: string };
 type InvoiceTypeOpt = { id: string; name: string };
 type VendorOpt = { id: string; name: string };
+
+type SortConfig = {
+  field: string;
+  direction: 'asc' | 'desc';
+};
+
+function SortableHeader({
+  label,
+  field,
+  sortConfig,
+  onSort,
+  className = ''
+}: {
+  label: string;
+  field: string;
+  sortConfig: SortConfig;
+  onSort: (field: string) => void;
+  className?: string;
+}) {
+  const isActive = sortConfig.field === field;
+  return (
+    <th
+      className={`px-3 py-2 text-left font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100 select-none ${className}`}
+      onClick={() => onSort(field)}
+    >
+      <div className="flex items-center gap-1">
+        {label}
+        <span className={`text-[10px] ${isActive ? 'text-primary-600' : 'text-gray-300'}`}>
+          {isActive ? (sortConfig.direction === 'asc' ? '▲' : '▼') : '▼'}
+        </span>
+      </div>
+    </th>
+  );
+}
 
 export default function InvoiceOversightPage() {
   const { user, loading } = useAuth();
@@ -46,6 +79,9 @@ export default function InvoiceOversightPage() {
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
 
+  // Sorting state
+  const [sortConfig, setSortConfig] = useState<SortConfig>({ field: 'dueDate', direction: 'desc' });
+
   useEffect(() => {
     if (!loading && !user) { router.push('/login'); return; }
     if (!loading && user && user.role !== 'ADMIN') { router.push('/dashboard'); return; }
@@ -71,7 +107,7 @@ export default function InvoiceOversightPage() {
     try {
       const params = new URLSearchParams();
       params.set('page', String(p));
-      params.set('limit', '20');
+      params.set('limit', '10');
       if (pharmacyFilter) params.set('pharmacyId', pharmacyFilter);
       if (statusFilter) params.set('status', statusFilter);
       if (overdueFilter) params.set('overdueOnly', 'true');
@@ -103,15 +139,69 @@ export default function InvoiceOversightPage() {
     setDateFrom(''); setDateTo('');
   };
 
+  const handleSort = (field: string) => {
+    setSortConfig(prev => ({
+      field,
+      direction: prev.field === field && prev.direction === 'asc' ? 'desc' : 'asc'
+    }));
+  };
+
+  // Sort invoices client-side
+  const sortedInvoices = useMemo(() => {
+    const data = [...invoices];
+    data.sort((a: any, b: any) => {
+      let aVal: any, bVal: any;
+      switch (sortConfig.field) {
+        case 'invoiceNumber':
+          aVal = a.invoiceNumber || '';
+          bVal = b.invoiceNumber || '';
+          break;
+        case 'pharmacy':
+          aVal = a.pharmacy?.name || '';
+          bVal = b.pharmacy?.name || '';
+          break;
+        case 'vendor':
+          aVal = a.vendor?.name || '';
+          bVal = b.vendor?.name || '';
+          break;
+        case 'invoiceType':
+          aVal = a.invoiceType?.name || '';
+          bVal = b.invoiceType?.name || '';
+          break;
+        case 'amount':
+          aVal = Number(a.amount) || 0;
+          bVal = Number(b.amount) || 0;
+          break;
+        case 'dueDate':
+          aVal = a.dueDate ? new Date(a.dueDate).getTime() : 0;
+          bVal = b.dueDate ? new Date(b.dueDate).getTime() : 0;
+          break;
+        case 'status':
+          aVal = a.status || '';
+          bVal = b.status || '';
+          break;
+        default:
+          aVal = a[sortConfig.field];
+          bVal = b[sortConfig.field];
+      }
+      if (typeof aVal === 'string') aVal = aVal.toLowerCase();
+      if (typeof bVal === 'string') bVal = bVal.toLowerCase();
+      if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
+      if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
+      return 0;
+    });
+    return data;
+  }, [invoices, sortConfig]);
+
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-20">
-        <div className="flex items-center gap-3 text-gray-500">
-          <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
+      <div className="flex items-center justify-center py-12">
+        <div className="flex items-center gap-2 text-gray-400">
+          <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
           </svg>
-          <span className="text-sm font-medium">Loading...</span>
+          <span className="text-sm">Loading...</span>
         </div>
       </div>
     );
@@ -125,108 +215,104 @@ export default function InvoiceOversightPage() {
   };
 
   return (
-    <div className="max-w-7xl mx-auto space-y-6">
+    <div className="max-w-6xl mx-auto space-y-3">
       <div>
-        <Link href="/dashboard/admin/oversight" className="text-link text-sm">&larr; Back to Oversight</Link>
+        <h1 className="text-lg font-heading font-bold text-gray-900">Invoice Oversight</h1>
+        <p className="text-xs text-gray-500">All invoices across all pharmacies — {totalCount} total</p>
       </div>
 
-      <div>
-        <h1 className="page-title">Invoice Oversight</h1>
-        <p className="text-sm text-gray-500 mt-1">All invoices across all pharmacies &mdash; {totalCount} total</p>
-      </div>
-
-      {error && <div className="alert-error">{error}</div>}
+      {error && <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded text-xs">{error}</div>}
 
       {/* Filters */}
-      <div className="card p-4">
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <select value={pharmacyFilter} onChange={e => setPharmacyFilter(e.target.value)} className="input-field text-sm">
+      <div className="card p-3">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+          <select value={pharmacyFilter} onChange={e => setPharmacyFilter(e.target.value)} className="input-field text-xs py-1.5">
             <option value="">All Pharmacies</option>
             {pharmacies.map(p => <option key={p.id} value={p.id}>{p.name} ({p.code})</option>)}
           </select>
-          <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="input-field text-sm">
+          <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="input-field text-xs py-1.5">
             <option value="">All Statuses</option>
             {['DRAFT', 'SUBMITTED', 'NEEDS_INFO', 'APPROVED', 'SCHEDULED', 'PAID', 'REJECTED'].map(s =>
               <option key={s} value={s}>{s}</option>
             )}
           </select>
-          <select value={invoiceTypeFilter} onChange={e => setInvoiceTypeFilter(e.target.value)} className="input-field text-sm">
+          <select value={invoiceTypeFilter} onChange={e => setInvoiceTypeFilter(e.target.value)} className="input-field text-xs py-1.5">
             <option value="">All Types</option>
             {invoiceTypes.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
           </select>
-          <select value={vendorFilter} onChange={e => setVendorFilter(e.target.value)} className="input-field text-sm">
+          <select value={vendorFilter} onChange={e => setVendorFilter(e.target.value)} className="input-field text-xs py-1.5">
             <option value="">All Vendors</option>
             {vendors.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
           </select>
         </div>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-3">
-          <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className="input-field text-sm" placeholder="Due from" />
-          <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className="input-field text-sm" placeholder="Due to" />
-          <label className="flex items-center gap-2 cursor-pointer">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-2">
+          <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className="input-field text-xs py-1.5" placeholder="Due from" />
+          <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className="input-field text-xs py-1.5" placeholder="Due to" />
+          <label className="flex items-center gap-1.5 cursor-pointer">
             <input type="checkbox" checked={overdueFilter} onChange={e => setOverdueFilter(e.target.checked)} className="rounded border-gray-300 text-primary-600" />
-            <span className="text-sm text-gray-700">Overdue only</span>
+            <span className="text-xs text-gray-700">Overdue only</span>
           </label>
-          <label className="flex items-center gap-2 cursor-pointer">
+          <label className="flex items-center gap-1.5 cursor-pointer">
             <input type="checkbox" checked={needsReviewFilter} onChange={e => setNeedsReviewFilter(e.target.checked)} className="rounded border-gray-300 text-primary-600" />
-            <span className="text-sm text-gray-700">Needs review</span>
+            <span className="text-xs text-gray-700">Needs review</span>
           </label>
         </div>
-        <div className="flex gap-2 mt-3">
-          <button onClick={handleSearch} className="btn-primary text-sm">Apply Filters</button>
-          <button onClick={handleClear} className="text-sm px-3 py-1.5 rounded-md text-gray-600 hover:bg-gray-100">Clear</button>
+        <div className="flex gap-2 mt-2">
+          <button onClick={handleSearch} className="btn-primary text-xs px-3 py-1.5">Apply</button>
+          <button onClick={handleClear} className="text-xs px-3 py-1.5 rounded text-gray-600 hover:bg-gray-100">Clear</button>
         </div>
       </div>
 
       {/* Table */}
       <div className="card overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
+          <table className="min-w-full text-xs">
             <thead className="bg-gray-50">
               <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Invoice #</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Pharmacy</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden md:table-cell">Vendor</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden lg:table-cell">Type</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Amount</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden md:table-cell">Due Date</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden lg:table-cell">Review</th>
+                <SortableHeader label="Invoice #" field="invoiceNumber" sortConfig={sortConfig} onSort={handleSort} />
+                <SortableHeader label="Pharmacy" field="pharmacy" sortConfig={sortConfig} onSort={handleSort} />
+                <SortableHeader label="Vendor" field="vendor" sortConfig={sortConfig} onSort={handleSort} className="hidden md:table-cell" />
+                <SortableHeader label="Type" field="invoiceType" sortConfig={sortConfig} onSort={handleSort} className="hidden lg:table-cell" />
+                <SortableHeader label="Amount" field="amount" sortConfig={sortConfig} onSort={handleSort} />
+                <SortableHeader label="Due" field="dueDate" sortConfig={sortConfig} onSort={handleSort} className="hidden md:table-cell" />
+                <SortableHeader label="Status" field="status" sortConfig={sortConfig} onSort={handleSort} />
+                <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase hidden lg:table-cell">Review</th>
               </tr>
             </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
+            <tbody className="bg-white divide-y divide-gray-100">
               {loadingData ? (
-                <tr><td colSpan={8} className="px-4 py-8 text-center text-sm text-gray-500">Loading...</td></tr>
-              ) : invoices.length === 0 ? (
-                <tr><td colSpan={8} className="px-4 py-8 text-center text-sm text-gray-500">No invoices match the filters.</td></tr>
-              ) : invoices.map((inv: any) => (
+                <tr><td colSpan={8} className="px-3 py-6 text-center text-gray-400">Loading...</td></tr>
+              ) : sortedInvoices.length === 0 ? (
+                <tr><td colSpan={8} className="px-3 py-6 text-center text-gray-400">No invoices match the filters.</td></tr>
+              ) : sortedInvoices.map((inv: any) => (
                 <tr
                   key={inv.id}
                   className="hover:bg-gray-50 cursor-pointer"
                   onClick={() => router.push(`/dashboard/admin/oversight/invoices/${inv.id}`)}
                 >
-                  <td className="px-4 py-3 text-sm font-medium text-primary-600">
+                  <td className="px-3 py-2 font-medium text-primary-600">
                     {inv.invoiceNumber || inv.id.slice(0, 8)}
                   </td>
-                  <td className="px-4 py-3 text-sm text-gray-900">
+                  <td className="px-3 py-2 text-gray-900">
                     {inv.pharmacy?.name || '-'}
-                    <span className="text-xs text-gray-400 ml-1">({inv.pharmacy?.code})</span>
+                    <span className="text-[10px] text-gray-400 ml-1">({inv.pharmacy?.code})</span>
                   </td>
-                  <td className="px-4 py-3 text-sm text-gray-500 hidden md:table-cell">{inv.vendor?.name || '-'}</td>
-                  <td className="px-4 py-3 text-sm text-gray-500 hidden lg:table-cell">{inv.invoiceType?.name || '-'}</td>
-                  <td className="px-4 py-3 text-sm text-gray-900">
+                  <td className="px-3 py-2 text-gray-500 hidden md:table-cell">{inv.vendor?.name || '-'}</td>
+                  <td className="px-3 py-2 text-gray-500 hidden lg:table-cell">{inv.invoiceType?.name || '-'}</td>
+                  <td className="px-3 py-2 text-gray-900">
                     {inv.amount != null ? `$${Number(inv.amount).toLocaleString('en-US', { minimumFractionDigits: 2 })}` : '-'}
                   </td>
-                  <td className={`px-4 py-3 text-sm hidden md:table-cell ${isOverdue(inv.dueDate) && inv.status !== 'PAID' && inv.status !== 'REJECTED' ? 'text-red-600 font-medium' : 'text-gray-500'}`}>
+                  <td className={`px-3 py-2 hidden md:table-cell ${isOverdue(inv.dueDate) && inv.status !== 'PAID' && inv.status !== 'REJECTED' ? 'text-red-600 font-medium' : 'text-gray-500'}`}>
                     {inv.dueDate ? new Date(inv.dueDate).toLocaleDateString() : '-'}
                   </td>
-                  <td className="px-4 py-3 text-sm">
-                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${STATUS_COLORS[inv.status] || 'bg-gray-100 text-gray-700'}`}>
+                  <td className="px-3 py-2">
+                    <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold ${STATUS_COLORS[inv.status] || 'bg-gray-100 text-gray-700'}`}>
                       {inv.status}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-sm hidden lg:table-cell">
+                  <td className="px-3 py-2 hidden lg:table-cell">
                     {inv.needsReview && (
-                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-700">Review</span>
+                      <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-amber-50 text-amber-700">Review</span>
                     )}
                   </td>
                 </tr>
@@ -237,22 +323,22 @@ export default function InvoiceOversightPage() {
 
         {/* Pagination */}
         {totalPages > 1 && (
-          <div className="px-4 py-3 border-t border-gray-200 flex items-center justify-between">
-            <span className="text-sm text-gray-500">
+          <div className="px-3 py-2 border-t border-gray-200 flex items-center justify-between">
+            <span className="text-xs text-gray-500">
               Page {page} of {totalPages} ({totalCount} total)
             </span>
-            <div className="flex gap-2">
+            <div className="flex gap-1">
               <button
                 onClick={() => fetchInvoices(page - 1)}
                 disabled={page <= 1}
-                className="text-sm px-3 py-1 rounded-md border border-gray-300 text-gray-600 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="text-xs px-2 py-1 rounded border border-gray-300 text-gray-600 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                Previous
+                Prev
               </button>
               <button
                 onClick={() => fetchInvoices(page + 1)}
                 disabled={page >= totalPages}
-                className="text-sm px-3 py-1 rounded-md border border-gray-300 text-gray-600 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="text-xs px-2 py-1 rounded border border-gray-300 text-gray-600 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Next
               </button>

@@ -2,7 +2,7 @@
 
 import { useAuth } from '../../../../../../components/AuthProvider';
 import { useRouter } from 'next/navigation';
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { apiFetch } from '../../../../../../lib/api';
 import Link from 'next/link';
 
@@ -32,6 +32,11 @@ type Instance = {
 
 type Pharmacy = { id: string; name: string; code: string };
 
+type SortConfig = {
+  field: string;
+  direction: 'asc' | 'desc';
+};
+
 const statusColors: Record<string, string> = {
   PENDING: 'bg-yellow-50 text-yellow-700',
   SUBMITTED: 'bg-blue-50 text-blue-700',
@@ -50,6 +55,35 @@ const currentMonth = () => {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 };
 
+function SortableHeader({
+  label,
+  field,
+  sortConfig,
+  onSort,
+  className = '',
+}: {
+  label: string;
+  field: string;
+  sortConfig: SortConfig;
+  onSort: (field: string) => void;
+  className?: string;
+}) {
+  const isActive = sortConfig.field === field;
+  return (
+    <th
+      className={`px-3 py-2 font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100 select-none ${className}`}
+      onClick={() => onSort(field)}
+    >
+      <div className="flex items-center gap-1">
+        {label}
+        <span className={`text-[10px] ${isActive ? 'text-primary-600' : 'text-gray-300'}`}>
+          {isActive ? (sortConfig.direction === 'asc' ? '▲' : '▼') : '▼'}
+        </span>
+      </div>
+    </th>
+  );
+}
+
 export default function InstancesPage() {
   const { user, loading } = useAuth();
   const router = useRouter();
@@ -64,6 +98,11 @@ export default function InstancesPage() {
   const [filterPharmacy, setFilterPharmacy] = useState<string>('');
   const [filterStatus, setFilterStatus] = useState<string>('');
   const [filterMonth, setFilterMonth] = useState<string>(currentMonth());
+
+  // Pagination and sorting
+  const [currentPage, setCurrentPage] = useState(1);
+  const [sortConfig, setSortConfig] = useState<SortConfig>({ field: 'submissionDeadline', direction: 'asc' });
+  const itemsPerPage = 10;
 
   // Link invoice modal
   const [linkingInstance, setLinkingInstance] = useState<Instance | null>(null);
@@ -113,6 +152,67 @@ export default function InstancesPage() {
       fetchInstances();
     }
   }, [filterPharmacy, filterStatus, filterMonth, fetchInstances, user]);
+
+  // Reset page when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filterPharmacy, filterStatus, filterMonth]);
+
+  const handleSort = (field: string) => {
+    setSortConfig(prev => ({
+      field,
+      direction: prev.field === field && prev.direction === 'asc' ? 'desc' : 'asc',
+    }));
+    setCurrentPage(1);
+  };
+
+  // Sort and paginate data
+  const sortedAndPaginatedData = useMemo(() => {
+    const sorted = [...instances].sort((a, b) => {
+      let aVal: any;
+      let bVal: any;
+
+      switch (sortConfig.field) {
+        case 'pharmacy':
+          aVal = a.requirement.pharmacy?.code || '';
+          bVal = b.requirement.pharmacy?.code || '';
+          break;
+        case 'requirement':
+          aVal = a.requirement.name || '';
+          bVal = b.requirement.name || '';
+          break;
+        case 'period':
+          aVal = a.periodLabel || '';
+          bVal = b.periodLabel || '';
+          break;
+        case 'submissionDeadline':
+          aVal = new Date(a.submissionDeadline).getTime();
+          bVal = new Date(b.submissionDeadline).getTime();
+          break;
+        case 'status':
+          const statusOrder = { PENDING: 1, OVERDUE: 2, SUBMITTED: 3, PROCESSED: 4, MISSED: 5 };
+          aVal = statusOrder[a.status] || 0;
+          bVal = statusOrder[b.status] || 0;
+          break;
+        default:
+          aVal = new Date(a.submissionDeadline).getTime();
+          bVal = new Date(b.submissionDeadline).getTime();
+      }
+
+      if (typeof aVal === 'string' && typeof bVal === 'string') {
+        return sortConfig.direction === 'asc'
+          ? aVal.localeCompare(bVal)
+          : bVal.localeCompare(aVal);
+      }
+
+      return sortConfig.direction === 'asc' ? aVal - bVal : bVal - aVal;
+    });
+
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    return sorted.slice(startIndex, startIndex + itemsPerPage);
+  }, [instances, sortConfig, currentPage]);
+
+  const totalPages = Math.ceil(instances.length / itemsPerPage);
 
   const handleEvaluate = async () => {
     setEvaluating(true);
@@ -174,13 +274,13 @@ export default function InstancesPage() {
 
   if (loading || loadingData) {
     return (
-      <div className="flex items-center justify-center py-20">
-        <div className="flex items-center gap-3 text-gray-500">
-          <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
+      <div className="flex items-center justify-center py-12">
+        <div className="flex items-center gap-2 text-gray-400">
+          <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
           </svg>
-          <span className="text-sm font-medium">Loading...</span>
+          <span className="text-sm">Loading...</span>
         </div>
       </div>
     );
@@ -189,41 +289,38 @@ export default function InstancesPage() {
   if (!user || !['ADMIN', 'COMPANY_MANAGER'].includes(user.role)) return null;
 
   return (
-    <div className="max-w-6xl mx-auto space-y-6">
-      <div>
-        <Link href="/dashboard/admin/requirements" className="text-link text-sm">&larr; Back to Requirements</Link>
-      </div>
-
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+    <div className="max-w-6xl mx-auto space-y-3">
+      {/* Header */}
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <div>
-          <h1 className="page-title">Requirement Instances</h1>
-          <p className="text-sm text-gray-500 mt-1">Track fulfillment of invoice requirements by period</p>
+          <h1 className="text-lg font-heading font-bold text-gray-900">Instances</h1>
+          <p className="text-xs text-gray-500">Track fulfillment of invoice requirements by period ({instances.length} total)</p>
         </div>
-        <button onClick={handleEvaluate} disabled={evaluating} className="btn-primary">
+        <button onClick={handleEvaluate} disabled={evaluating} className="btn-primary text-xs px-3 py-1.5">
           {evaluating ? 'Evaluating...' : 'Run Evaluation'}
         </button>
       </div>
 
-      {error && <div className="alert-error">{error}</div>}
-      {success && <div className="alert-success">{success}</div>}
+      {error && <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded text-xs">{error}</div>}
+      {success && <div className="bg-green-50 border border-green-200 text-green-700 px-3 py-2 rounded text-xs">{success}</div>}
 
       {/* Filters */}
-      <div className="card p-4">
-        <div className="flex flex-wrap gap-4">
-          <div className="flex-1 min-w-[150px]">
-            <label className="field-label">Month</label>
-            <input type="month" value={filterMonth} onChange={e => setFilterMonth(e.target.value)} className="input-field" />
+      <div className="card p-3">
+        <div className="flex flex-wrap gap-2">
+          <div className="flex-1 min-w-[130px]">
+            <label className="block text-[10px] font-medium text-gray-700 mb-0.5">Month</label>
+            <input type="month" value={filterMonth} onChange={e => setFilterMonth(e.target.value)} className="input-field text-xs py-1.5" />
           </div>
-          <div className="flex-1 min-w-[180px]">
-            <label className="field-label">Pharmacy</label>
-            <select value={filterPharmacy} onChange={e => setFilterPharmacy(e.target.value)} className="input-field">
+          <div className="flex-1 min-w-[150px]">
+            <label className="block text-[10px] font-medium text-gray-700 mb-0.5">Pharmacy</label>
+            <select value={filterPharmacy} onChange={e => setFilterPharmacy(e.target.value)} className="input-field text-xs py-1.5">
               <option value="">All Pharmacies</option>
               {pharmacies.map(p => <option key={p.id} value={p.id}>{p.name} ({p.code})</option>)}
             </select>
           </div>
-          <div className="w-36">
-            <label className="field-label">Status</label>
-            <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} className="input-field">
+          <div className="w-28">
+            <label className="block text-[10px] font-medium text-gray-700 mb-0.5">Status</label>
+            <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} className="input-field text-xs py-1.5">
               <option value="">All</option>
               <option value="PENDING">Pending</option>
               <option value="SUBMITTED">Submitted</option>
@@ -238,59 +335,59 @@ export default function InstancesPage() {
       {/* Table */}
       <div className="card overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200 text-sm">
+          <table className="min-w-full text-xs">
             <thead className="bg-gray-50">
               <tr>
-                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Pharmacy</th>
-                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Requirement</th>
-                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Period</th>
-                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase hidden md:table-cell">Deadlines</th>
-                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Invoice</th>
-                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
+                <SortableHeader label="Pharmacy" field="pharmacy" sortConfig={sortConfig} onSort={handleSort} className="text-left" />
+                <SortableHeader label="Requirement" field="requirement" sortConfig={sortConfig} onSort={handleSort} className="text-left" />
+                <SortableHeader label="Period" field="period" sortConfig={sortConfig} onSort={handleSort} className="text-left" />
+                <SortableHeader label="Deadlines" field="submissionDeadline" sortConfig={sortConfig} onSort={handleSort} className="text-left hidden md:table-cell" />
+                <SortableHeader label="Status" field="status" sortConfig={sortConfig} onSort={handleSort} className="text-left" />
+                <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase">Invoice</th>
+                <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase">Actions</th>
               </tr>
             </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {instances.length === 0 ? (
+            <tbody className="bg-white divide-y divide-gray-100">
+              {sortedAndPaginatedData.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-3 py-8 text-center text-sm text-gray-500">
+                  <td colSpan={7} className="px-3 py-6 text-center text-gray-400">
                     No instances found. Generate instances from the Requirements page.
                   </td>
                 </tr>
-              ) : instances.map((i) => (
+              ) : sortedAndPaginatedData.map((i) => (
                 <tr key={i.id} className="hover:bg-gray-50">
                   <td className="px-3 py-2 text-gray-900">{i.requirement.pharmacy.code}</td>
                   <td className="px-3 py-2 text-gray-900">
                     <div className="font-medium">{i.requirement.name}</div>
-                    {i.requirement.vendor && <div className="text-xs text-gray-400">{i.requirement.vendor.name}</div>}
+                    {i.requirement.vendor && <div className="text-[10px] text-gray-400">{i.requirement.vendor.name}</div>}
                   </td>
                   <td className="px-3 py-2 text-gray-700">{i.periodLabel}</td>
-                  <td className="px-3 py-2 text-gray-500 text-xs hidden md:table-cell">
+                  <td className="px-3 py-2 text-gray-500 text-[10px] hidden md:table-cell">
                     <div>Sub: {formatDate(i.submissionDeadline)}</div>
                     <div>Proc: {formatDate(i.processingDeadline)}</div>
                   </td>
                   <td className="px-3 py-2">
-                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${statusColors[i.status] || 'bg-gray-100 text-gray-600'}`}>
+                    <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold ${statusColors[i.status] || 'bg-gray-100 text-gray-600'}`}>
                       {i.status}
                     </span>
-                    {i.submissionMet === false && <span className="ml-1 text-xs text-red-500" title="Submission deadline missed">!</span>}
-                    {i.processingMet === false && <span className="ml-1 text-xs text-red-500" title="Processing deadline missed">!!</span>}
+                    {i.submissionMet === false && <span className="ml-1 text-[10px] text-red-500" title="Submission deadline missed">!</span>}
+                    {i.processingMet === false && <span className="ml-1 text-[10px] text-red-500" title="Processing deadline missed">!!</span>}
                   </td>
                   <td className="px-3 py-2">
                     {i.invoice ? (
-                      <Link href={`/dashboard/pharmacy/invoices/${i.invoiceId}`} className="text-link text-xs">
-                        {i.invoice.invoiceNumber || 'View Invoice'}
+                      <Link href={`/dashboard/pharmacy/invoices/${i.invoiceId}`} className="text-primary-600 hover:underline text-[10px]">
+                        {i.invoice.invoiceNumber || 'View'}
                       </Link>
                     ) : (
-                      <span className="text-xs text-gray-400">Not linked</span>
+                      <span className="text-[10px] text-gray-400">Not linked</span>
                     )}
                   </td>
                   <td className="px-3 py-2">
                     <div className="flex items-center gap-1">
                       {i.invoice ? (
-                        <button onClick={() => handleUnlink(i)} className="text-xs px-2 py-1 rounded-md font-medium text-red-600 hover:bg-red-50">Unlink</button>
+                        <button onClick={() => handleUnlink(i)} className="text-[10px] px-1.5 py-0.5 rounded font-medium text-red-600 hover:bg-red-50">Unlink</button>
                       ) : (
-                        <button onClick={() => openLinkModal(i)} className="text-xs px-2 py-1 rounded-md font-medium text-primary-600 hover:bg-primary-50">Link Invoice</button>
+                        <button onClick={() => openLinkModal(i)} className="text-[10px] px-1.5 py-0.5 rounded font-medium text-primary-600 hover:bg-primary-50">Link</button>
                       )}
                     </div>
                   </td>
@@ -299,29 +396,57 @@ export default function InstancesPage() {
             </tbody>
           </table>
         </div>
+
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <div className="px-3 py-2 border-t border-gray-100 flex items-center justify-between bg-gray-50/50">
+            <div className="text-[11px] text-gray-500">
+              Showing {((currentPage - 1) * itemsPerPage) + 1}-{Math.min(currentPage * itemsPerPage, instances.length)} of {instances.length}
+            </div>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                disabled={currentPage === 1}
+                className="px-2 py-1 text-[11px] font-medium rounded border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                Prev
+              </button>
+              <span className="px-2 text-[11px] text-gray-600">
+                {currentPage} / {totalPages}
+              </span>
+              <button
+                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                disabled={currentPage === totalPages}
+                className="px-2 py-1 text-[11px] font-medium rounded border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Link Invoice Modal */}
       {linkingInstance && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-xl max-w-lg w-full mx-4 p-6">
-            <h3 className="text-lg font-semibold mb-4">Link Invoice to Requirement</h3>
-            <p className="text-sm text-gray-600 mb-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4 p-4">
+            <h3 className="text-sm font-semibold text-gray-900 mb-2">Link Invoice to Requirement</h3>
+            <p className="text-xs text-gray-600 mb-3">
               <strong>{linkingInstance.requirement.name}</strong> - {linkingInstance.periodLabel}
             </p>
 
             {loadingInvoices ? (
-              <div className="py-8 text-center text-gray-500">Loading invoices...</div>
+              <div className="py-6 text-center text-gray-400 text-xs">Loading invoices...</div>
             ) : invoices.length === 0 ? (
-              <div className="py-8 text-center text-gray-500">No invoices available for this pharmacy.</div>
+              <div className="py-6 text-center text-gray-400 text-xs">No invoices available for this pharmacy.</div>
             ) : (
-              <div className="space-y-2 max-h-64 overflow-y-auto">
+              <div className="space-y-1.5 max-h-56 overflow-y-auto">
                 {invoices.map((inv: any) => (
-                  <label key={inv.id} className={`flex items-center gap-3 p-3 border rounded-lg cursor-pointer hover:bg-gray-50 ${selectedInvoiceId === inv.id ? 'border-primary-500 bg-primary-50' : 'border-gray-200'}`}>
+                  <label key={inv.id} className={`flex items-center gap-2 p-2 border rounded cursor-pointer hover:bg-gray-50 ${selectedInvoiceId === inv.id ? 'border-primary-500 bg-primary-50' : 'border-gray-200'}`}>
                     <input type="radio" name="invoice" value={inv.id} checked={selectedInvoiceId === inv.id} onChange={e => setSelectedInvoiceId(e.target.value)} className="text-primary-600" />
                     <div className="flex-1">
-                      <div className="font-medium text-sm">{inv.invoiceNumber || 'No Number'}</div>
-                      <div className="text-xs text-gray-500">
+                      <div className="font-medium text-xs">{inv.invoiceNumber || 'No Number'}</div>
+                      <div className="text-[10px] text-gray-500">
                         {inv.vendor?.name || 'No vendor'} &middot; {inv.status} &middot; {inv.amount ? `$${Number(inv.amount).toFixed(2)}` : 'No amount'}
                       </div>
                     </div>
@@ -330,9 +455,9 @@ export default function InstancesPage() {
               </div>
             )}
 
-            <div className="flex justify-end gap-3 mt-6">
-              <button onClick={() => setLinkingInstance(null)} className="btn-secondary">Cancel</button>
-              <button onClick={handleLink} disabled={!selectedInvoiceId || linking} className="btn-primary">
+            <div className="flex justify-end gap-2 mt-4">
+              <button onClick={() => setLinkingInstance(null)} className="text-xs px-3 py-1.5 rounded bg-gray-100 text-gray-600 font-medium hover:bg-gray-200">Cancel</button>
+              <button onClick={handleLink} disabled={!selectedInvoiceId || linking} className="btn-accent text-xs px-3 py-1.5">
                 {linking ? 'Linking...' : 'Link Invoice'}
               </button>
             </div>

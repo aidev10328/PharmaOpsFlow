@@ -4,9 +4,11 @@ import {
   IsDateString,
   IsNumber,
   IsOptional,
+  IsEnum,
   Min,
   MaxLength,
 } from 'class-validator';
+import { DocumentType } from './create-invoice.dto';
 
 export class UpdateInvoiceDto {
   @IsOptional()
@@ -21,6 +23,15 @@ export class UpdateInvoiceDto {
   @IsString()
   @MaxLength(100)
   invoiceNumber?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  accountNumber?: string;
+
+  @IsOptional()
+  @IsEnum(['INVOICE', 'STATEMENT', 'CREDIT_MEMO', 'OTHER'])
+  documentType?: DocumentType;
 
   @IsOptional()
   @IsDateString()

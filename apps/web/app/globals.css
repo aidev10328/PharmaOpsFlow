@@ -124,6 +124,37 @@ body {
   background: var(--color-accent-dark);
 }
 
+.btn-accent:active {
+  transform: scale(0.98);
+}
+
+.btn-accent:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.btn-dark {
+  @apply inline-flex items-center justify-center px-4 py-2 rounded-lg text-white text-sm font-semibold transition-all;
+  background: #1E3A5F;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+}
+
+.btn-dark:hover {
+  background: #0F2942;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+.btn-dark:active {
+  transform: scale(0.98);
+}
+
+.btn-dark:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
 .btn-ghost {
   @apply inline-flex items-center px-3 py-1.5 rounded-md text-sm font-medium;
   color: var(--color-text-secondary);

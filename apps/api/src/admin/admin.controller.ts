@@ -44,8 +44,9 @@ export class AdminController {
   // ===== Pharmacies =====
 
   @Get('pharmacies')
-  async listPharmacies() {
-    return this.adminService.listPharmacies();
+  @Roles(Role.ADMIN, Role.COMPANY_MANAGER)
+  async listPharmacies(@Request() req: any) {
+    return this.adminService.listPharmacies(req.user);
   }
 
   @Post('pharmacies')

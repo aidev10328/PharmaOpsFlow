@@ -142,10 +142,10 @@ export class SlaSummaryDto {
 }
 
 // Query Plan types for LLM integration
-export type QueryIntent = 'invoice_search' | 'invoice_summary' | 'sla_summary' | 'invoice_detail';
+export type QueryIntent = 'invoice_search' | 'invoice_summary' | 'sla_summary' | 'invoice_detail' | 'help';
 
 export class QueryPlanDto {
-  @IsEnum(['invoice_search', 'invoice_summary', 'sla_summary', 'invoice_detail'])
+  @IsEnum(['invoice_search', 'invoice_summary', 'sla_summary', 'invoice_detail', 'help'])
   intent: QueryIntent;
 
   @IsOptional()
@@ -168,6 +168,10 @@ export class QueryPlanDto {
   @Min(1)
   @Max(100)
   limit?: number;
+
+  @IsOptional()
+  @IsString()
+  helpResponse?: string; // Response text for help intent
 }
 
 // Response types
@@ -198,6 +202,7 @@ export interface SummaryMetrics {
   count: number;
   sumAmount: number;
   sumPaid: number;
+  avgAmount: number;
   avgCycleDays: number | null;
 }
 

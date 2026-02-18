@@ -19,15 +19,89 @@ import { Roles } from '../common/decorators/roles.decorator';
 import { Role, MemberRole } from '../common/enums/role.enum';
 import { ExtractionService, ApplyExtractionDto } from './extraction.service';
 import { PrismaService } from '../prisma.service';
+import {
+  IsString,
+  IsNumber,
+  IsOptional,
+  IsBoolean,
+  IsUUID,
+} from 'class-validator';
 
 class TriggerExtractionDto {
+  @IsOptional()
+  @IsString()
   fileId?: string;
 }
 
 class WebhookExtractionDto {
+  @IsString()
   invoiceId: string;
+
+  @IsOptional()
+  @IsString()
   fileId?: string;
+
+  @IsOptional()
+  @IsString()
   webhookSecret?: string;
+}
+
+class CreateFromTempDto {
+  @IsString()
+  tempFilePath: string;
+
+  @IsString()
+  originalName: string;
+
+  @IsString()
+  mimeType: string;
+
+  @IsNumber()
+  sizeBytes: number;
+
+  @IsOptional()
+  @IsUUID()
+  vendorId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  invoiceTypeId?: string;
+
+  @IsOptional()
+  @IsString()
+  invoiceNumber?: string;
+
+  @IsOptional()
+  @IsString()
+  accountNumber?: string;
+
+  @IsOptional()
+  @IsString()
+  invoiceDate?: string;
+
+  @IsOptional()
+  @IsString()
+  dueDate?: string;
+
+  @IsOptional()
+  @IsNumber()
+  amount?: number;
+
+  @IsOptional()
+  @IsString()
+  currency?: string;
+
+  @IsOptional()
+  @IsString()
+  notes?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  submit?: boolean;
+
+  @IsOptional()
+  @IsUUID()
+  pharmacyId?: string;
 }
 
 @Controller('extraction')
@@ -47,9 +121,98 @@ export class ExtractionController {
   }
 
   /**
-   * Upload and parse invoice document
+   * Extract invoice data WITHOUT creating an invoice (new preferred method)
+   * POST /extraction/extract-only
+   * Uploads file to temp storage, extracts data, returns results
+   * No invoice is created - prevents orphaned drafts when users abandon the page
+   */
+  @Post('extract-only')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      limits: {
+        fileSize: 10 * 1024 * 1024, // 10MB
+      },
+    }),
+  )
+  async extractOnly(
+    @UploadedFile() file: Express.Multer.File,
+    @Body('pharmacyId') pharmacyId: string,
+    @Request() req,
+  ) {
+    if (!file) {
+      throw new BadRequestException('No file provided');
+    }
+
+    if (!pharmacyId) {
+      throw new BadRequestException('Pharmacy ID is required');
+    }
+
+    // Check pharmacy access
+    const hasAccess = await this.checkPharmacyAccess(req.user, pharmacyId);
+    if (!hasAccess) {
+      throw new ForbiddenException('You do not have access to this pharmacy');
+    }
+
+    return this.extractionService.extractOnly({
+      pharmacyId,
+      file,
+      userId: req.user.id,
+    });
+  }
+
+  /**
+   * Create invoice from a previously uploaded temp file
+   * POST /extraction/create-from-temp
+   * Creates the actual invoice after user reviews and confirms the data
+   */
+  @Post('create-from-temp')
+  async createFromTemp(
+    @Body() dto: CreateFromTempDto,
+    @Request() req,
+  ) {
+    const pharmacyId = dto.pharmacyId;
+
+    if (!pharmacyId) {
+      throw new BadRequestException('Pharmacy ID is required');
+    }
+
+    if (!dto.tempFilePath) {
+      throw new BadRequestException('Temp file path is required');
+    }
+
+    // Check pharmacy access
+    const hasAccess = await this.checkPharmacyAccess(req.user, pharmacyId);
+    if (!hasAccess) {
+      throw new ForbiddenException('You do not have access to this pharmacy');
+    }
+
+    return this.extractionService.createInvoiceFromTempFile({
+      pharmacyId,
+      tempFilePath: dto.tempFilePath,
+      originalName: dto.originalName,
+      mimeType: dto.mimeType,
+      sizeBytes: dto.sizeBytes,
+      userId: req.user.id,
+      invoiceData: {
+        vendorId: dto.vendorId,
+        invoiceTypeId: dto.invoiceTypeId,
+        invoiceNumber: dto.invoiceNumber,
+        accountNumber: dto.accountNumber,
+        invoiceDate: dto.invoiceDate,
+        dueDate: dto.dueDate,
+        amount: dto.amount,
+        currency: dto.currency,
+        notes: dto.notes,
+      },
+      submit: dto.submit,
+    });
+  }
+
+  /**
+   * Upload and parse invoice document (DEPRECATED - use extract-only instead)
    * POST /extraction/upload-and-parse
    * Creates a draft invoice, uploads the file, and extracts data
+   * @deprecated Use /extraction/extract-only and /extraction/create-from-temp instead
    */
   @Post('upload-and-parse')
   @UseInterceptors(
