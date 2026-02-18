@@ -110,12 +110,17 @@ export default function SlaOversightPage() {
           <h1 className="page-title">SLA & Compliance Oversight</h1>
           <p className="text-sm text-gray-500 mt-1">Monthly submission and processing compliance tracking</p>
         </div>
-        <input
-          type="month"
-          value={monthFilter}
-          onChange={e => setMonthFilter(e.target.value)}
-          className="input-field w-auto text-sm"
-        />
+        <div className="flex items-center gap-3">
+          <Link href="/dashboard/admin/requirements/compliance" className="btn-secondary text-sm">
+            New Requirements System
+          </Link>
+          <input
+            type="month"
+            value={monthFilter}
+            onChange={e => setMonthFilter(e.target.value)}
+            className="input-field w-auto text-sm"
+          />
+        </div>
       </div>
 
       {error && <div className="alert-error">{error}</div>}

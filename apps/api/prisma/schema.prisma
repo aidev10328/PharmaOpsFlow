@@ -64,6 +64,18 @@ enum ExtractionStatus {
   FAILED    // Extraction failed
 }
 
+enum EntryMethod {
+  MANUAL         // Manually entered by user
+  AI_EXTRACTION  // Created via AI document extraction
+}
+
+enum DocumentType {
+  INVOICE
+  STATEMENT
+  CREDIT_MEMO
+  OTHER
+}
+
 enum AIProvider {
   GEMINI
   OPENAI
@@ -115,6 +127,7 @@ model Pharmacy {
   monthlyRequirements MonthlyInvoiceRequirement[]
   slaEvents           SlaEvent[]
   notificationLogs    NotificationLog[]
+  invoiceRequirements InvoiceRequirement[]
 
   @@index([orgId])
 }
@@ -180,6 +193,7 @@ model InvoiceType {
   org                    Org                   @relation(fields: [orgId], references: [id], onDelete: Cascade)
   invoices               Invoice[]
   requiredInvoiceTypes   RequiredInvoiceType[]
+  invoiceRequirements    InvoiceRequirement[]
 
   @@unique([orgId, code])
   @@index([orgId])
@@ -201,6 +215,7 @@ model Vendor {
   org      Org       @relation(fields: [orgId], references: [id], onDelete: Cascade)
   pharmacy Pharmacy? @relation(fields: [pharmacyId], references: [id], onDelete: Cascade)
   invoices Invoice[]
+  invoiceRequirements InvoiceRequirement[]
 
   @@index([orgId, pharmacyId, isActive])
   @@index([orgId])
@@ -231,6 +246,8 @@ model Invoice {
 
   // Invoice details
   invoiceNumber String?       // Nullable for extraction flow
+  accountNumber String?       // Alternative identifier (e.g., statement/account number)
+  documentType  DocumentType  @default(INVOICE) // INVOICE, STATEMENT, CREDIT_MEMO, OTHER
   invoiceDate   DateTime?     // Nullable for extraction flow
   dueDate       DateTime?     // Nullable for extraction flow
   amount        Decimal?      @db.Decimal(12, 2) // Nullable for extraction flow
@@ -240,6 +257,7 @@ model Invoice {
 
   // Status tracking
   status        InvoiceStatus @default(DRAFT)
+  entryMethod   EntryMethod   @default(MANUAL) // How the invoice was created
   submittedAt   DateTime?
   approvedAt    DateTime?
   approvedById  String?       // User who approved
@@ -257,13 +275,14 @@ model Invoice {
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
 
-  pharmacy    Pharmacy            @relation(fields: [pharmacyId], references: [id], onDelete: Cascade)
-  vendor      Vendor?             @relation(fields: [vendorId], references: [id], onDelete: Restrict)
-  invoiceType InvoiceType?        @relation(fields: [invoiceTypeId], references: [id], onDelete: Restrict)
-  files       InvoiceFile[]
-  events      InvoiceEvent[]
-  slaEvents   SlaEvent[]
-  extractions InvoiceExtraction[]
+  pharmacy             Pharmacy              @relation(fields: [pharmacyId], references: [id], onDelete: Cascade)
+  vendor               Vendor?               @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+  invoiceType          InvoiceType?          @relation(fields: [invoiceTypeId], references: [id], onDelete: Restrict)
+  files                InvoiceFile[]
+  events               InvoiceEvent[]
+  slaEvents            SlaEvent[]
+  extractions          InvoiceExtraction[]
+  requirementInstances RequirementInstance[]
 
   @@index([pharmacyId])
   @@index([vendorId])
@@ -347,6 +366,96 @@ enum SlaEventType {
   PROCESSING_MISSED        // Invoice not processed by 10th
   SUBMISSION_REMINDER_SENT // Reminder sent before submission deadline
   PROCESSING_REMINDER_SENT // Reminder sent before processing deadline
+}
+
+// Frequency for recurring invoice requirements
+enum RequirementFrequency {
+  WEEKLY
+  MONTHLY
+  QUARTERLY
+  ANNUALLY
+}
+
+// Status of a requirement instance
+enum RequirementInstanceStatus {
+  PENDING     // Not yet due, waiting for submission
+  SUBMITTED   // Invoice submitted, pending processing
+  PROCESSED   // Invoice processed (approved/paid)
+  OVERDUE     // Past deadline, not yet submitted/processed
+  MISSED      // Deadline passed, SLA violated
+}
+
+// Defines what invoices a pharmacy needs to submit
+model InvoiceRequirement {
+  id               String               @id @default(uuid())
+  pharmacyId       String
+  vendorId         String?              // Which vendor (null = any vendor)
+  invoiceTypeId    String?              // Which invoice type (null = any type)
+
+  // Requirement details
+  name             String               // e.g., "Monthly ConEd Electricity Bill"
+  description      String?
+  frequency        RequirementFrequency @default(MONTHLY)
+
+  // Deadline configuration (day of period)
+  submissionDueDay Int                  @default(5)  // e.g., 5th of month
+  processingDueDay Int                  @default(10) // e.g., 10th of month
+
+  // For quarterly/annual, which months apply (1-12, comma-separated for quarterly)
+  // e.g., "3,6,9,12" for quarterly, "12" for annual December
+  applicableMonths String?
+
+  isActive         Boolean              @default(true)
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+
+  pharmacy    Pharmacy               @relation(fields: [pharmacyId], references: [id], onDelete: Cascade)
+  vendor      Vendor?                @relation(fields: [vendorId], references: [id], onDelete: SetNull)
+  invoiceType InvoiceType?           @relation(fields: [invoiceTypeId], references: [id], onDelete: SetNull)
+  instances   RequirementInstance[]
+
+  @@index([pharmacyId])
+  @@index([pharmacyId, isActive])
+  @@index([vendorId])
+}
+
+// Tracks each occurrence of a requirement (e.g., Jan 2025, Feb 2025, etc.)
+model RequirementInstance {
+  id                  String                    @id @default(uuid())
+  requirementId       String
+  invoiceId           String?                   // Linked when invoice is submitted
+
+  // Period this instance covers
+  periodStart         DateTime                  // Start of the period (e.g., 2025-01-01)
+  periodEnd           DateTime                  // End of the period (e.g., 2025-01-31)
+  periodLabel         String                    // Human-readable: "January 2025", "Q1 2025", "2025"
+
+  // Calculated deadlines for this specific instance
+  submissionDeadline  DateTime                  // e.g., 2025-01-05
+  processingDeadline  DateTime                  // e.g., 2025-01-10
+
+  // Tracking
+  status              RequirementInstanceStatus @default(PENDING)
+  submittedAt         DateTime?
+  processedAt         DateTime?
+  submissionMet       Boolean?                  // null = not yet evaluated
+  processingMet       Boolean?                  // null = not yet evaluated
+
+  // Evaluation tracking
+  lastEvaluatedAt     DateTime?
+  notes               String?
+
+  createdAt           DateTime                  @default(now())
+  updatedAt           DateTime                  @updatedAt
+
+  requirement InvoiceRequirement @relation(fields: [requirementId], references: [id], onDelete: Cascade)
+  invoice     Invoice?           @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+
+  @@unique([requirementId, periodStart])
+  @@index([requirementId])
+  @@index([requirementId, status])
+  @@index([submissionDeadline])
+  @@index([status, submissionDeadline])
 }
 
 // Monthly invoice submission requirements per pharmacy

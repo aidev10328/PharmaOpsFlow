@@ -16,6 +16,7 @@ import {
 } from './dto';
 import { InvoiceStatus, InvoiceEventType, Prisma } from '@prisma/client';
 import { SlaService } from '../sla/sla.service';
+import { RequirementsService } from '../requirements/requirements.service';
 
 // Valid status transitions
 const STATUS_TRANSITIONS: Record<InvoiceStatus, InvoiceStatus[]> = {
@@ -34,6 +35,8 @@ export class InvoiceService {
     private prisma: PrismaService,
     @Inject(forwardRef(() => SlaService))
     private slaService: SlaService,
+    @Inject(forwardRef(() => RequirementsService))
+    private requirementsService: RequirementsService,
   ) {}
 
   /**
@@ -78,6 +81,23 @@ export class InvoiceService {
         invoiceType: { select: { id: true, name: true } },
       },
     });
+
+    // Auto-link to matching requirement instance
+    try {
+      await this.requirementsService.autoLinkInvoice({
+        id: invoice.id,
+        pharmacyId: invoice.pharmacyId,
+        vendorId: invoice.vendorId,
+        invoiceTypeId: invoice.invoiceTypeId,
+        invoiceDate: invoice.invoiceDate,
+        submittedAt: invoice.submittedAt,
+        approvedAt: invoice.approvedAt,
+        status: invoice.status,
+      });
+    } catch (e) {
+      // Auto-linking is best-effort, don't fail invoice creation
+      console.error('Auto-link failed:', e);
+    }
 
     return invoice;
   }
@@ -143,6 +163,20 @@ export class InvoiceService {
         where.dueDate.lte = new Date(query.dueDateTo);
       }
     }
+    if (query.invoiceDateFrom || query.invoiceDateTo) {
+      // Filter by invoice date range, also include invoices with no date set (incomplete drafts)
+      const dateCondition: Prisma.DateTimeNullableFilter = {};
+      if (query.invoiceDateFrom) {
+        dateCondition.gte = new Date(query.invoiceDateFrom);
+      }
+      if (query.invoiceDateTo) {
+        dateCondition.lte = new Date(query.invoiceDateTo);
+      }
+      where.OR = [
+        { invoiceDate: dateCondition },
+        { invoiceDate: null }, // Include drafts with no invoice date set
+      ];
+    }
 
     // Execute query with pagination
     const [invoices, total] = await Promise.all([
@@ -156,6 +190,16 @@ export class InvoiceService {
             select: { id: true, originalName: true, mimeType: true, storagePath: true },
             take: 1,
             orderBy: { createdAt: 'desc' },
+          },
+          requirementInstances: {
+            select: {
+              id: true,
+              periodLabel: true,
+              requirement: {
+                select: { id: true, name: true },
+              },
+            },
+            take: 1,
           },
         },
         orderBy: [{ dueDate: 'asc' }, { createdAt: 'desc' }],
@@ -249,6 +293,8 @@ export class InvoiceService {
     if (dto.vendorId) updateData.vendor = { connect: { id: dto.vendorId } };
     if (dto.invoiceTypeId) updateData.invoiceType = { connect: { id: dto.invoiceTypeId } };
     if (dto.invoiceNumber) updateData.invoiceNumber = dto.invoiceNumber;
+    if (dto.accountNumber !== undefined) updateData.accountNumber = dto.accountNumber;
+    if (dto.documentType) updateData.documentType = dto.documentType;
     if (dto.invoiceDate) updateData.invoiceDate = new Date(dto.invoiceDate);
     if (dto.dueDate) updateData.dueDate = new Date(dto.dueDate);
     if (dto.amount !== undefined) updateData.amount = dto.amount;
@@ -299,8 +345,8 @@ export class InvoiceService {
     if (!invoice.invoiceTypeId) {
       throw new BadRequestException('Invoice type is required before submitting');
     }
-    if (!invoice.invoiceNumber) {
-      throw new BadRequestException('Invoice number is required before submitting');
+    if (!invoice.invoiceNumber && !invoice.accountNumber) {
+      throw new BadRequestException('Invoice number or account number is required before submitting');
     }
     if (!invoice.amount) {
       throw new BadRequestException('Amount is required before submitting');
@@ -310,16 +356,19 @@ export class InvoiceService {
     }
 
     // Check for duplicate invoice number (same vendor + pharmacy + invoice number)
-    const isDuplicate = await this.checkDuplicateInvoice(
-      invoice.pharmacyId,
-      invoice.vendorId,
-      invoice.invoiceNumber,
-      invoiceId,
-    );
-    if (isDuplicate) {
-      throw new BadRequestException(
-        `An invoice with number "${invoice.invoiceNumber}" already exists for this vendor and pharmacy`,
+    // Only check if invoice number is provided
+    if (invoice.invoiceNumber) {
+      const isDuplicate = await this.checkDuplicateInvoice(
+        invoice.pharmacyId,
+        invoice.vendorId,
+        invoice.invoiceNumber,
+        invoiceId,
       );
+      if (isDuplicate) {
+        throw new BadRequestException(
+          `An invoice with number "${invoice.invoiceNumber}" already exists for this vendor and pharmacy`,
+        );
+      }
     }
 
     return this.transitionStatus(
@@ -452,6 +501,19 @@ export class InvoiceService {
         invoiceType: { select: { id: true, name: true } },
       },
     });
+
+    // Update requirement instance status when invoice status changes
+    try {
+      await this.requirementsService.updateInstanceForInvoice({
+        id: updated.id,
+        submittedAt: updated.submittedAt,
+        approvedAt: updated.approvedAt,
+        status: updated.status,
+      });
+    } catch (e) {
+      // Best-effort update, don't fail the status transition
+      console.error('Update instance failed:', e);
+    }
 
     // Update SLA counts when invoice is submitted or approved
     if (newStatus === InvoiceStatus.SUBMITTED || newStatus === InvoiceStatus.APPROVED) {

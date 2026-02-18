@@ -62,10 +62,16 @@ export class SlaController {
   @Get('summary')
   @Roles(Role.ADMIN, Role.COMPANY_MANAGER)
   async getSummary(@Request() req, @Query('yearMonth') yearMonth?: string) {
-    if (!req.user.orgId) {
+    // For admin users without orgId, get the first org
+    let orgId = req.user.orgId;
+    if (!orgId && req.user.role === 'ADMIN') {
+      const firstOrg = await this.prisma.org.findFirst();
+      orgId = firstOrg?.id;
+    }
+    if (!orgId) {
       throw new ForbiddenException('User must belong to an organization');
     }
-    return this.slaService.getSummary(req.user.orgId, yearMonth);
+    return this.slaService.getSummary(orgId, yearMonth);
   }
 
   /**

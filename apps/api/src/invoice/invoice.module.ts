@@ -9,12 +9,14 @@ import { PrismaService } from '../prisma.service';
 import { StorageModule } from '../storage';
 import { SlaModule } from '../sla/sla.module';
 import { ExtractionModule } from '../extraction/extraction.module';
+import { RequirementsModule } from '../requirements/requirements.module';
 
 @Module({
   imports: [
     StorageModule,
     forwardRef(() => SlaModule),
     forwardRef(() => ExtractionModule),
+    forwardRef(() => RequirementsModule),
     MulterModule.register({
       storage: memoryStorage(), // Store in memory for processing before upload
       limits: {

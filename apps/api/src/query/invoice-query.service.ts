@@ -84,26 +84,45 @@ export class InvoiceQueryService {
   /**
    * Get SLA summary for a month
    */
-  async getSlaSummary(month: string, orgId: string): Promise<SlaSummaryResult> {
+  async getSlaSummary(month: string, orgId: string | null | undefined): Promise<SlaSummaryResult> {
     // Validate month format
     if (!/^\d{4}-\d{2}$/.test(month)) {
       throw new BadRequestException('Month must be in YYYY-MM format');
     }
 
+    // Calculate date range for the month
+    const [yearStr, monthStr] = month.split('-');
+    const startDate = new Date(parseInt(yearStr), parseInt(monthStr) - 1, 1);
+    const endDate = new Date(parseInt(yearStr), parseInt(monthStr), 0, 23, 59, 59);
+    const now = new Date();
+
+    // Resolve orgId for ADMIN users
+    let resolvedOrgId = orgId;
+    if (!orgId) {
+      const firstOrg = await this.prisma.org.findFirst();
+      resolvedOrgId = firstOrg?.id;
+    }
+
     // Get all pharmacies in the org
     const pharmacies = await this.prisma.pharmacy.findMany({
-      where: { orgId, isActive: true },
+      where: resolvedOrgId ? { orgId: resolvedOrgId, isActive: true } : { isActive: true },
       select: { id: true, name: true, code: true },
     });
 
-    // Get monthly requirements
-    const requirements = await this.prisma.monthlyInvoiceRequirement.findMany({
+    // Get all requirement instances for the month period
+    const requirementInstances = await this.prisma.requirementInstance.findMany({
       where: {
-        yearMonth: month,
-        pharmacy: { orgId },
+        requirement: {
+          isActive: true,
+          ...(resolvedOrgId && { pharmacy: { orgId: resolvedOrgId } }),
+        },
+        periodStart: { lte: endDate },
+        periodEnd: { gte: startDate },
       },
       include: {
-        pharmacy: { select: { id: true, name: true, code: true } },
+        requirement: {
+          select: { pharmacyId: true },
+        },
       },
     });
 
@@ -111,41 +130,72 @@ export class InvoiceQueryService {
     const slaEvents = await this.prisma.slaEvent.findMany({
       where: {
         yearMonth: month,
-        pharmacy: { orgId },
+        ...(resolvedOrgId && { pharmacy: { orgId: resolvedOrgId } }),
       },
     });
 
-    // Build pharmacy summaries
+    // Build pharmacy summaries based on actual requirement instances
     const pharmacySummaries = pharmacies.map((pharmacy) => {
-      const req = requirements.find((r) => r.pharmacyId === pharmacy.id);
+      const instances = requirementInstances.filter(
+        (i) => i.requirement.pharmacyId === pharmacy.id
+      );
       const events = slaEvents.filter((e) => e.pharmacyId === pharmacy.id);
 
-      const submissionMissed = events.filter(
+      // Count instances by status
+      const totalExpected = instances.length;
+      const submittedCount = instances.filter(
+        (i) => ['SUBMITTED', 'PROCESSED'].includes(i.status)
+      ).length;
+      const processedCount = instances.filter(
+        (i) => i.status === 'PROCESSED'
+      ).length;
+
+      // Count missed deadlines: PENDING instances where submissionDeadline has passed
+      const submissionMissed = instances.filter(
+        (i) => i.status === 'PENDING' && i.submissionDeadline && new Date(i.submissionDeadline) < now
+      ).length;
+
+      // Also count from SLA events
+      const submissionMissedEvents = events.filter(
         (e) => e.eventType === 'SUBMISSION_MISSED',
       ).length;
-      const processingMissed = events.filter(
+
+      // Count processing missed: SUBMITTED (not PROCESSED) instances where processingDeadline has passed
+      const processingMissed = instances.filter(
+        (i) => i.status === 'SUBMITTED' && i.processingDeadline && new Date(i.processingDeadline) < now
+      ).length;
+
+      const processingMissedEvents = events.filter(
         (e) => e.eventType === 'PROCESSING_MISSED',
       ).length;
+
+      // Use the maximum of calculated misses and event-based misses
+      const totalSubmissionMissed = Math.max(submissionMissed, submissionMissedEvents);
+      const totalProcessingMissed = Math.max(processingMissed, processingMissedEvents);
+
+      // Calculate compliance rate based on processedCount / expectedCount
+      // If no requirements defined, compliance is 0 (not 100%)
+      const complianceRate = totalExpected > 0
+        ? Math.round((processedCount / totalExpected) * 100)
+        : 0; // No requirements = 0% compliance (need to define requirements first)
 
       return {
         pharmacyId: pharmacy.id,
         pharmacyName: pharmacy.name,
         pharmacyCode: pharmacy.code,
-        submissionMissed,
-        processingMissed,
-        pending: (req?.expectedCount || 0) - (req?.submittedCount || 0),
-        totalExpected: req?.expectedCount || 0,
-        submittedCount: req?.submittedCount || 0,
-        processedCount: req?.processedCount || 0,
-        complianceRate: req?.expectedCount
-          ? Math.round(((req.processedCount || 0) / req.expectedCount) * 100)
-          : 100,
+        submissionMissed: totalSubmissionMissed,
+        processingMissed: totalProcessingMissed,
+        pending: totalExpected - submittedCount,
+        totalExpected,
+        submittedCount,
+        processedCount,
+        complianceRate,
       };
     });
 
     // Calculate totals
     const compliantPharmacies = pharmacySummaries.filter(
-      (p) => p.submissionMissed === 0 && p.processingMissed === 0,
+      (p) => p.submissionMissed === 0 && p.processingMissed === 0 && p.complianceRate === 100,
     ).length;
 
     return {
@@ -214,9 +264,25 @@ export class InvoiceQueryService {
   /**
    * Get list of pharmacies for filter dropdown
    */
-  async getPharmaciesForOrg(orgId: string) {
+  async getPharmaciesForOrg(orgId: string | null | undefined) {
+    // If no orgId provided (ADMIN users), get first org or return all active pharmacies
+    let resolvedOrgId = orgId;
+    if (!orgId) {
+      const firstOrg = await this.prisma.org.findFirst();
+      resolvedOrgId = firstOrg?.id;
+    }
+
+    // If still no org, return all active pharmacies
+    if (!resolvedOrgId) {
+      return this.prisma.pharmacy.findMany({
+        where: { isActive: true },
+        select: { id: true, name: true, code: true },
+        orderBy: { name: 'asc' },
+      });
+    }
+
     return this.prisma.pharmacy.findMany({
-      where: { orgId, isActive: true },
+      where: { orgId: resolvedOrgId, isActive: true },
       select: { id: true, name: true, code: true },
       orderBy: { name: 'asc' },
     });
@@ -301,23 +367,33 @@ export class InvoiceQueryService {
 
     // Due date range filter
     if (filters.dueDateRange) {
-      where.dueDate = where.dueDate || {};
-      if (filters.dueDateRange.from) {
-        (where.dueDate as any).gte = new Date(filters.dueDateRange.from);
-      }
-      if (filters.dueDateRange.to) {
-        (where.dueDate as any).lte = new Date(filters.dueDateRange.to);
+      const hasFrom = filters.dueDateRange.from && typeof filters.dueDateRange.from === 'string' && filters.dueDateRange.from.trim() !== '';
+      const hasTo = filters.dueDateRange.to && typeof filters.dueDateRange.to === 'string' && filters.dueDateRange.to.trim() !== '';
+
+      if (hasFrom || hasTo) {
+        where.dueDate = where.dueDate || {};
+        if (hasFrom) {
+          (where.dueDate as any).gte = new Date(filters.dueDateRange.from!);
+        }
+        if (hasTo) {
+          (where.dueDate as any).lte = new Date(filters.dueDateRange.to!);
+        }
       }
     }
 
     // Amount range filter
     if (filters.amountRange) {
-      where.amount = {};
-      if (filters.amountRange.min !== undefined) {
-        where.amount.gte = filters.amountRange.min;
-      }
-      if (filters.amountRange.max !== undefined) {
-        where.amount.lte = filters.amountRange.max;
+      const hasMin = filters.amountRange.min !== undefined && filters.amountRange.min !== null;
+      const hasMax = filters.amountRange.max !== undefined && filters.amountRange.max !== null;
+
+      if (hasMin || hasMax) {
+        where.amount = {};
+        if (hasMin) {
+          where.amount.gte = filters.amountRange.min;
+        }
+        if (hasMax) {
+          where.amount.lte = filters.amountRange.max;
+        }
       }
     }
 
@@ -416,10 +492,15 @@ export class InvoiceQueryService {
       avgCycleDays = Math.round(totalDays / cycleDays.length);
     }
 
+    const count = aggregates._count.id;
+    const sumAmount = Number(aggregates._sum.amount || 0);
+    const avgAmount = count > 0 ? sumAmount / count : 0;
+
     return {
-      count: aggregates._count.id,
-      sumAmount: Number(aggregates._sum.amount || 0),
+      count,
+      sumAmount,
       sumPaid: Number(paidAggregates._sum.amount || 0),
+      avgAmount,
       avgCycleDays,
     };
   }
@@ -493,24 +574,37 @@ export class InvoiceQueryService {
         groupLabel = vendor?.name || groupKey;
       }
 
-      // Get paid amount for this group
-      const paidWhere = {
-        ...where,
-        [groupField]: groupKey,
-        status: InvoiceStatus.PAID,
-      };
-      const paidSum = await this.prisma.invoice.aggregate({
-        where: paidWhere,
-        _sum: { amount: true },
-      });
+      const groupCount = group._count.id;
+      const groupSumAmount = Number(group._sum.amount || 0);
+      const groupAvgAmount = groupCount > 0 ? groupSumAmount / groupCount : 0;
+
+      // Calculate paid amount for this group
+      let groupSumPaid = 0;
+      if (groupBy === 'status') {
+        // When grouping by status, sumPaid only applies to PAID status
+        groupSumPaid = groupKey === InvoiceStatus.PAID ? groupSumAmount : 0;
+      } else {
+        // For other groupings, query for paid invoices in this group
+        const paidWhere = {
+          ...where,
+          [groupField]: groupKey,
+          status: InvoiceStatus.PAID,
+        };
+        const paidSum = await this.prisma.invoice.aggregate({
+          where: paidWhere,
+          _sum: { amount: true },
+        });
+        groupSumPaid = Number(paidSum._sum.amount || 0);
+      }
 
       results.push({
         groupKey,
         groupLabel,
         metrics: {
-          count: group._count.id,
-          sumAmount: Number(group._sum.amount || 0),
-          sumPaid: Number(paidSum._sum.amount || 0),
+          count: groupCount,
+          sumAmount: groupSumAmount,
+          sumPaid: groupSumPaid,
+          avgAmount: groupAvgAmount,
           avgCycleDays: null, // Skip for grouped for performance
         },
       });

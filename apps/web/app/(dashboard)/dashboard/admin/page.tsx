@@ -267,7 +267,7 @@ export default function AdminDashboardPage() {
         <h2 className="text-sm font-heading font-semibold text-gray-700 uppercase tracking-wider mb-3">
           Reference Data
         </h2>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
           <AdminLink
             href="/dashboard/admin/reference/invoice-types"
             title="Invoice Types"
@@ -285,9 +285,16 @@ export default function AdminDashboardPage() {
           <AdminLink
             href="/dashboard/admin/reference/required-invoices"
             title="Required Invoices"
-            description="SLA compliance configuration"
+            description="Legacy SLA configuration"
             iconColor="text-rose-600"
             iconPath="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"
+          />
+          <AdminLink
+            href="/dashboard/admin/requirements"
+            title="Invoice Requirements"
+            description="Per-pharmacy recurring requirements"
+            iconColor="text-purple-600"
+            iconPath="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
           />
         </div>
       </div>

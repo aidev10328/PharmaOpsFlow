@@ -184,15 +184,16 @@ export class SlaService {
     pharmacies: PharmacySlaStatus[];
   }> {
     const evalMonth = yearMonth || this.getYearMonth();
-    const currentDate = this.getCurrentDate();
-    const currentDay = currentDate.getDate();
+    const now = new Date();
+
+    // Calculate date range for the month
+    const [yearStr, monthStr] = evalMonth.split('-');
+    const startDate = new Date(parseInt(yearStr), parseInt(monthStr) - 1, 1);
+    const endDate = new Date(parseInt(yearStr), parseInt(monthStr), 0, 23, 59, 59);
 
     const pharmacies = await this.prisma.pharmacy.findMany({
       where: { orgId, isActive: true },
       include: {
-        monthlyRequirements: {
-          where: { yearMonth: evalMonth },
-        },
         slaEvents: {
           where: { yearMonth: evalMonth },
           orderBy: { createdAt: 'desc' },
@@ -200,26 +201,71 @@ export class SlaService {
       },
     });
 
+    // Get all requirement instances for the month period across all pharmacies in this org
+    const requirementInstances = await this.prisma.requirementInstance.findMany({
+      where: {
+        requirement: {
+          isActive: true,
+          pharmacy: { orgId },
+        },
+        periodStart: { lte: endDate },
+        periodEnd: { gte: startDate },
+      },
+      include: {
+        requirement: {
+          select: { pharmacyId: true },
+        },
+      },
+    });
+
     const pharmacyStatuses: PharmacySlaStatus[] = pharmacies.map((pharmacy) => {
-      const req = pharmacy.monthlyRequirements[0];
-      const submissionDeadlinePassed = currentDay >= this.SUBMISSION_DUE_DAY;
-      const processingDeadlinePassed = currentDay >= this.PROCESSING_DUE_DAY;
+      // Get requirement instances for this pharmacy
+      const instances = requirementInstances.filter(
+        (i) => i.requirement.pharmacyId === pharmacy.id
+      );
+
+      // Count instances by status
+      const expectedCount = instances.length; // 0 if no requirements defined
+      const submittedCount = instances.filter(
+        (i) => ['SUBMITTED', 'PROCESSED'].includes(i.status)
+      ).length;
+      const processedCount = instances.filter(
+        (i) => i.status === 'PROCESSED'
+      ).length;
+
+      // Count missed deadlines: PENDING instances where submissionDeadline has passed
+      const submissionMissedCount = instances.filter(
+        (i) => i.status === 'PENDING' && i.submissionDeadline && new Date(i.submissionDeadline) < now
+      ).length;
+
+      // Count processing missed: SUBMITTED (not PROCESSED) instances where processingDeadline has passed
+      const processingMissedCount = instances.filter(
+        (i) => i.status === 'SUBMITTED' && i.processingDeadline && new Date(i.processingDeadline) < now
+      ).length;
+
+      // Submission deadline is met if all instances are submitted or no pending instances have missed their deadline
+      const submissionDeadlineMet = submissionMissedCount === 0;
+
+      // Processing deadline is met if all instances are processed or no submitted instances have missed their deadline
+      const processingDeadlineMet = processingMissedCount === 0;
+
+      // SLA is met only if:
+      // 1. There are requirements defined (expectedCount > 0)
+      // 2. All requirements are processed
+      // 3. No missed deadlines
+      const isMet = expectedCount > 0 && processedCount >= expectedCount && submissionDeadlineMet && processingDeadlineMet;
 
       return {
         pharmacyId: pharmacy.id,
         pharmacyName: pharmacy.name,
         pharmacyCode: pharmacy.code,
         yearMonth: evalMonth,
-        expectedCount: req?.expectedCount ?? 1,
-        submittedCount: req?.submittedCount ?? 0,
-        processedCount: req?.processedCount ?? 0,
-        isMet: req?.isMet ?? false,
-        submissionDeadlineMet: submissionDeadlinePassed
-          ? (req?.submittedCount ?? 0) >= (req?.expectedCount ?? 1)
-          : true, // Not yet due
-        processingDeadlineMet: processingDeadlinePassed
-          ? (req?.processedCount ?? 0) >= (req?.expectedCount ?? 1)
-          : true, // Not yet due
+        expectedCount,
+        submittedCount,
+        processedCount,
+        isMet,
+        submissionDeadlineMet,
+        processingDeadlineMet,
         events: pharmacy.slaEvents.map((e) => ({
           eventType: e.eventType,
           createdAt: e.createdAt,
@@ -249,15 +295,16 @@ export class SlaService {
    */
   async getPharmacyStatus(pharmacyId: string, yearMonth?: string): Promise<PharmacySlaStatus> {
     const evalMonth = yearMonth || this.getYearMonth();
-    const currentDate = this.getCurrentDate();
-    const currentDay = currentDate.getDate();
+    const now = new Date();
+
+    // Calculate date range for the month
+    const [yearStr, monthStr] = evalMonth.split('-');
+    const startDate = new Date(parseInt(yearStr), parseInt(monthStr) - 1, 1);
+    const endDate = new Date(parseInt(yearStr), parseInt(monthStr), 0, 23, 59, 59);
 
     const pharmacy = await this.prisma.pharmacy.findUnique({
       where: { id: pharmacyId },
       include: {
-        monthlyRequirements: {
-          where: { yearMonth: evalMonth },
-        },
         slaEvents: {
           where: { yearMonth: evalMonth },
           orderBy: { createdAt: 'desc' },
@@ -269,25 +316,60 @@ export class SlaService {
       throw new NotFoundException('Pharmacy not found');
     }
 
-    const req = pharmacy.monthlyRequirements[0];
-    const submissionDeadlinePassed = currentDay >= this.SUBMISSION_DUE_DAY;
-    const processingDeadlinePassed = currentDay >= this.PROCESSING_DUE_DAY;
+    // Get requirement instances for this pharmacy and month period
+    const instances = await this.prisma.requirementInstance.findMany({
+      where: {
+        requirement: {
+          pharmacyId,
+          isActive: true,
+        },
+        periodStart: { lte: endDate },
+        periodEnd: { gte: startDate },
+      },
+    });
+
+    // Count instances by status
+    const expectedCount = instances.length; // 0 if no requirements defined
+    const submittedCount = instances.filter(
+      (i) => ['SUBMITTED', 'PROCESSED'].includes(i.status)
+    ).length;
+    const processedCount = instances.filter(
+      (i) => i.status === 'PROCESSED'
+    ).length;
+
+    // Count missed deadlines: PENDING instances where submissionDeadline has passed
+    const submissionMissedCount = instances.filter(
+      (i) => i.status === 'PENDING' && i.submissionDeadline && new Date(i.submissionDeadline) < now
+    ).length;
+
+    // Count processing missed: SUBMITTED (not PROCESSED) instances where processingDeadline has passed
+    const processingMissedCount = instances.filter(
+      (i) => i.status === 'SUBMITTED' && i.processingDeadline && new Date(i.processingDeadline) < now
+    ).length;
+
+    // Submission deadline is met if no pending instances have missed their deadline
+    const submissionDeadlineMet = submissionMissedCount === 0;
+
+    // Processing deadline is met if no submitted instances have missed their deadline
+    const processingDeadlineMet = processingMissedCount === 0;
+
+    // SLA is met only if:
+    // 1. There are requirements defined (expectedCount > 0)
+    // 2. All requirements are processed
+    // 3. No missed deadlines
+    const isMet = expectedCount > 0 && processedCount >= expectedCount && submissionDeadlineMet && processingDeadlineMet;
 
     return {
       pharmacyId: pharmacy.id,
       pharmacyName: pharmacy.name,
       pharmacyCode: pharmacy.code,
       yearMonth: evalMonth,
-      expectedCount: req?.expectedCount ?? 1,
-      submittedCount: req?.submittedCount ?? 0,
-      processedCount: req?.processedCount ?? 0,
-      isMet: req?.isMet ?? false,
-      submissionDeadlineMet: submissionDeadlinePassed
-        ? (req?.submittedCount ?? 0) >= (req?.expectedCount ?? 1)
-        : true,
-      processingDeadlineMet: processingDeadlinePassed
-        ? (req?.processedCount ?? 0) >= (req?.expectedCount ?? 1)
-        : true,
+      expectedCount,
+      submittedCount,
+      processedCount,
+      isMet,
+      submissionDeadlineMet,
+      processingDeadlineMet,
       events: pharmacy.slaEvents.map((e) => ({
         eventType: e.eventType,
         createdAt: e.createdAt,
@@ -336,12 +418,50 @@ export class SlaService {
    * Called from InvoiceService on status transitions
    */
   async updateInvoiceCounts(pharmacyId: string, yearMonth: string): Promise<void> {
-    // Count submitted invoices for this month
+    // Calculate date range for the month
     const [yearStr, monthStr] = yearMonth.split('-');
     const startDate = new Date(parseInt(yearStr), parseInt(monthStr) - 1, 1);
     const endDate = new Date(parseInt(yearStr), parseInt(monthStr), 0, 23, 59, 59);
+    const now = new Date();
 
-    const submittedCount = await this.prisma.invoice.count({
+    // Get requirement instances for this pharmacy and month period
+    const requirementInstances = await this.prisma.requirementInstance.findMany({
+      where: {
+        requirement: {
+          pharmacyId,
+          isActive: true,
+        },
+        periodStart: { lte: endDate },
+        periodEnd: { gte: startDate },
+      },
+    });
+
+    // Count requirement instances for this month
+    const expectedCount = requirementInstances.length || 1; // Default to 1 if no requirements defined
+
+    // Count submitted: instances that are SUBMITTED or PROCESSED
+    // A PENDING instance that missed its submission deadline counts as NOT submitted (a miss)
+    const submittedInstanceCount = requirementInstances.filter(
+      (i) => ['SUBMITTED', 'PROCESSED'].includes(i.status)
+    ).length;
+
+    // Count processed: instances that are PROCESSED
+    const processedInstanceCount = requirementInstances.filter(
+      (i) => i.status === 'PROCESSED'
+    ).length;
+
+    // Count missed submission deadlines: PENDING instances where submissionDeadline has passed
+    const missedSubmissionCount = requirementInstances.filter(
+      (i) => i.status === 'PENDING' && i.submissionDeadline && new Date(i.submissionDeadline) < now
+    ).length;
+
+    // Count missed processing deadlines: SUBMITTED (not PROCESSED) instances where processingDeadline has passed
+    const missedProcessingCount = requirementInstances.filter(
+      (i) => i.status === 'SUBMITTED' && i.processingDeadline && new Date(i.processingDeadline) < now
+    ).length;
+
+    // Also count actual invoices as a fallback (for orgs without requirement definitions)
+    const submittedInvoiceCount = await this.prisma.invoice.count({
       where: {
         pharmacyId,
         submittedAt: {
@@ -351,7 +471,7 @@ export class SlaService {
       },
     });
 
-    const processedCount = await this.prisma.invoice.count({
+    const processedInvoiceCount = await this.prisma.invoice.count({
       where: {
         pharmacyId,
         status: {
@@ -364,23 +484,31 @@ export class SlaService {
       },
     });
 
+    // Use requirement instance counts if requirements are defined, otherwise use invoice counts
+    const submittedCount = requirementInstances.length > 0 ? submittedInstanceCount : submittedInvoiceCount;
+    const processedCount = requirementInstances.length > 0 ? processedInstanceCount : processedInvoiceCount;
+
+    // SLA is met only if all requirements are processed AND no missed deadlines
+    const isMet = processedCount >= expectedCount && missedSubmissionCount === 0 && missedProcessingCount === 0;
+
     // Upsert monthly requirement
-    const req = await this.prisma.monthlyInvoiceRequirement.upsert({
+    await this.prisma.monthlyInvoiceRequirement.upsert({
       where: {
         pharmacyId_yearMonth: { pharmacyId, yearMonth },
       },
       create: {
         pharmacyId,
         yearMonth,
-        expectedCount: 1,
+        expectedCount,
         submittedCount,
         processedCount,
-        isMet: processedCount >= 1,
+        isMet,
       },
       update: {
+        expectedCount,
         submittedCount,
         processedCount,
-        isMet: processedCount >= 1,
+        isMet,
       },
     });
   }
