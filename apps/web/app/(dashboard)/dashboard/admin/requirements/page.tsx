@@ -481,7 +481,7 @@ export default function RequirementsPage() {
           <label className="block text-[10px] font-medium text-gray-700 mb-0.5">Pharmacy</label>
           <select value={filterPharmacy} onChange={e => setFilterPharmacy(e.target.value)} className="input-field text-xs py-1.5">
             <option value="">All</option>
-            {pharmacies.map(p => <option key={p.id} value={p.id}>{p.code}</option>)}
+            {pharmacies.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
         </div>
         <div className="w-24">
@@ -511,7 +511,7 @@ export default function RequirementsPage() {
               <label className="block text-[10px] font-medium text-gray-700 mb-0.5">Pharmacy</label>
               <select value={generateForm.pharmacyId} onChange={e => setGenerateForm(f => ({ ...f, pharmacyId: e.target.value }))} className="input-field text-xs py-1.5">
                 <option value="">All</option>
-                {pharmacies.map(p => <option key={p.id} value={p.id}>{p.code}</option>)}
+                {pharmacies.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
               </select>
             </div>
             <div className="flex items-end">
@@ -531,7 +531,7 @@ export default function RequirementsPage() {
               <select value={createForm.pharmacyId} onChange={e => setCreateForm(f => ({ ...f, pharmacyId: e.target.value }))} className="input-field text-xs py-1.5" required>
                 <option value="">Select...</option>
                 <option value="ALL">All ({pharmacies.length})</option>
-                {pharmacies.map(p => <option key={p.id} value={p.id}>{p.code}</option>)}
+                {pharmacies.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
               </select>
             </div>
             <div>

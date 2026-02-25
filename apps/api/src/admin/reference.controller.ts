@@ -25,7 +25,7 @@ import {
 
 @Controller('v1/admin')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.ADMIN)
+@Roles(Role.ADMIN, Role.COMPANY_MANAGER)
 export class ReferenceController {
   constructor(private readonly referenceService: ReferenceService) {}
 

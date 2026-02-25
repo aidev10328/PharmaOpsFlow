@@ -214,7 +214,7 @@ export default function VendorsPage() {
               <label className="block text-[10px] font-medium text-gray-700 mb-0.5">Pharmacy</label>
               <select value={createForm.pharmacyId} onChange={e => setCreateForm(f => ({ ...f, pharmacyId: e.target.value }))} className="input-field text-xs py-1.5">
                 <option value="">Org-wide</option>
-                {pharmacies.map(p => <option key={p.id} value={p.id}>{p.code}</option>)}
+                {pharmacies.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
               </select>
             </div>
             <div>
@@ -279,7 +279,7 @@ export default function VendorsPage() {
               <label className="block text-[10px] font-medium text-gray-700 mb-0.5">Pharmacy</label>
               <select value={editForm.pharmacyId} onChange={e => setEditForm(f => ({ ...f, pharmacyId: e.target.value }))} className="input-field text-xs py-1.5">
                 <option value="">Org-wide</option>
-                {pharmacies.map(p => <option key={p.id} value={p.id}>{p.code}</option>)}
+                {pharmacies.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
               </select>
             </div>
             <div>
