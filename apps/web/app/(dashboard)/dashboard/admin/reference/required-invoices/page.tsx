@@ -131,7 +131,7 @@ export default function RequiredInvoicesPage() {
   if (!user || user.role !== 'ADMIN') return null;
 
   return (
-    <div className="max-w-5xl mx-auto space-y-6">
+    <div className="space-y-6">
       <div>
         <Link href="/dashboard/admin" className="text-link text-sm">&larr; Back to Admin</Link>
       </div>

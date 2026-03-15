@@ -71,7 +71,18 @@ export class SlaController {
     if (!orgId) {
       throw new ForbiddenException('User must belong to an organization');
     }
-    return this.slaService.getSummary(orgId, yearMonth);
+
+    // For COMPANY_MANAGER, scope to assigned pharmacies
+    let assignedPharmacyIds: string[] | undefined;
+    if (req.user.role === 'COMPANY_MANAGER') {
+      const assignments = await this.prisma.managerPharmacy.findMany({
+        where: { userId: req.user.id },
+        select: { pharmacyId: true },
+      });
+      assignedPharmacyIds = assignments.map((a) => a.pharmacyId);
+    }
+
+    return this.slaService.getSummary(orgId, yearMonth, assignedPharmacyIds);
   }
 
   /**
@@ -131,9 +142,12 @@ export class SlaController {
       return false;
     }
 
-    // Company manager can access pharmacies in their org
+    // Company manager can access assigned pharmacies in their org
     if (user.role === 'COMPANY_MANAGER' && user.orgId === pharmacy.orgId) {
-      return true;
+      const assignment = await this.prisma.managerPharmacy.findUnique({
+        where: { userId_pharmacyId: { userId: user.id, pharmacyId } },
+      });
+      return !!assignment;
     }
 
     // Pharmacy users check membership

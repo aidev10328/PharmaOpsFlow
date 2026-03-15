@@ -95,8 +95,12 @@ export class AdminController {
   }
 
   @Post('users/:id/reset-password')
-  async resetPassword(@Param('id') id: string, @Request() req: any) {
-    return this.adminService.resetPassword(id, req.user.id);
+  async resetPassword(
+    @Param('id') id: string,
+    @Body() body: { password?: string },
+    @Request() req: any,
+  ) {
+    return this.adminService.resetPassword(id, req.user.id, body?.password);
   }
 
   @Post('users/:id/disable')
@@ -132,5 +136,30 @@ export class AdminController {
     @Request() req: any,
   ) {
     return this.adminService.removeMember(id, memberId, req.user.id);
+  }
+
+  // ===== Manager Pharmacy Assignments =====
+
+  @Get('users/:id/pharmacies')
+  async getManagerPharmacies(@Param('id') id: string) {
+    return this.adminService.getManagerPharmacies(id);
+  }
+
+  @Post('users/:id/pharmacies/:pharmacyId')
+  async assignPharmacy(
+    @Param('id') id: string,
+    @Param('pharmacyId') pharmacyId: string,
+    @Request() req: any,
+  ) {
+    return this.adminService.assignPharmacyToManager(id, pharmacyId, req.user.id);
+  }
+
+  @Delete('users/:id/pharmacies/:pharmacyId')
+  async unassignPharmacy(
+    @Param('id') id: string,
+    @Param('pharmacyId') pharmacyId: string,
+    @Request() req: any,
+  ) {
+    return this.adminService.unassignPharmacyFromManager(id, pharmacyId, req.user.id);
   }
 }

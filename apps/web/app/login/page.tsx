@@ -2,8 +2,10 @@
 
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { useAuth } from '../../components/AuthProvider';
 import { apiFetch } from '../../lib/api';
+import PasswordInput from '../../components/PasswordInput';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -32,8 +34,14 @@ export default function LoginPage() {
       const data = await res.json();
 
       if (res.ok && data?.access_token) {
-        await loginWithToken(data.access_token);
-        router.push('/dashboard');
+        if (data.mustChangePassword) {
+          // Store token temporarily and redirect to force change password
+          await loginWithToken(data.access_token);
+          router.push('/change-password?force=true');
+        } else {
+          await loginWithToken(data.access_token);
+          router.push('/dashboard');
+        }
       } else {
         setError(data?.message || 'Invalid credentials');
       }
@@ -73,13 +81,12 @@ export default function LoginPage() {
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Password
               </label>
-              <input
-                type="password"
+              <PasswordInput
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="input-field"
-                placeholder="admin123"
+                placeholder="Enter your password"
                 required
+                autoComplete="current-password"
               />
             </div>
 
@@ -97,6 +104,15 @@ export default function LoginPage() {
               {loading ? 'Signing in...' : 'Sign in'}
             </button>
           </form>
+
+          <div className="mt-4 text-center">
+            <Link
+              href="/forgot-password"
+              className="text-sm text-primary-600 hover:text-primary-700 font-medium"
+            >
+              Forgot password?
+            </Link>
+          </div>
 
           <div className="mt-6 pt-6 border-t border-gray-100">
             <p className="text-center text-xs text-gray-400">

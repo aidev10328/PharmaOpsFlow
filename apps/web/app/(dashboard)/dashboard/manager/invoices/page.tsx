@@ -2,7 +2,7 @@
 
 import { useAuth } from '../../../../../components/AuthProvider';
 import { useRouter } from 'next/navigation';
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { apiFetch } from '../../../../../lib/api';
 import Link from 'next/link';
 
@@ -37,6 +37,7 @@ type Invoice = {
 type FilterOptions = {
   pharmacies: Pharmacy[];
   invoiceTypes: InvoiceType[];
+  vendors: Vendor[];
   statuses: string[];
 };
 
@@ -128,6 +129,57 @@ const generateMonthOptions = () => {
   return opts;
 };
 
+// ─── Vendor Autocomplete Component ────────────────────────────
+
+function VendorAutocomplete({ value, onChange, vendors }: { value: string; onChange: (val: string) => void; vendors: Vendor[] }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, []);
+
+  const filtered = value.length >= 3
+    ? vendors.filter(v => v.name.toLowerCase().includes(value.toLowerCase()))
+    : [];
+
+  return (
+    <div ref={ref} className="relative">
+      <input
+        type="text"
+        placeholder="Type 3+ letters..."
+        value={value}
+        onChange={e => { onChange(e.target.value); setOpen(true); }}
+        onFocus={() => { if (value.length >= 3) setOpen(true); }}
+        className="input-field text-xs py-1.5 w-full"
+      />
+      {open && filtered.length > 0 && (
+        <div className="absolute z-20 mt-1 w-full bg-white border border-gray-200 rounded-md shadow-lg max-h-40 overflow-y-auto">
+          {filtered.map(v => (
+            <button
+              key={v.id}
+              type="button"
+              onClick={() => { onChange(v.name); setOpen(false); }}
+              className="w-full text-left px-3 py-1.5 text-xs hover:bg-primary-50 hover:text-primary-700 truncate"
+            >
+              {v.name}
+            </button>
+          ))}
+        </div>
+      )}
+      {open && value.length >= 3 && filtered.length === 0 && (
+        <div className="absolute z-20 mt-1 w-full bg-white border border-gray-200 rounded-md shadow-lg px-3 py-2 text-xs text-gray-400">
+          No vendors found
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Sortable Header Component ────────────────────────────────
 
 function SortableHeader({
@@ -176,10 +228,12 @@ export default function ManagerOperationsPage() {
   const [stats, setStats] = useState<any>(null);
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
   const [actionNotes, setActionNotes] = useState('');
+  const [actionDate, setActionDate] = useState('');
+  const [actionType, setActionType] = useState<'review' | 'schedule' | 'paid'>('review');
   const [processingAction, setProcessingAction] = useState<string | null>(null);
 
   // Filters (shared between invoices "all" sub-tab and analytics tab)
-  const [filterOptions, setFilterOptions] = useState<FilterOptions>({ pharmacies: [], invoiceTypes: [], statuses: [] });
+  const [filterOptions, setFilterOptions] = useState<FilterOptions>({ pharmacies: [], invoiceTypes: [], vendors: [], statuses: [] });
   const [filters, setFilters] = useState({
     pharmacyId: '',
     invoiceTypeId: '',
@@ -410,16 +464,40 @@ export default function ManagerOperationsPage() {
       alert('Please provide notes for this action');
       return;
     }
+    if (action === 'schedule' && !actionDate) {
+      alert('Please select a scheduled payment date');
+      return;
+    }
+    if (action === 'paid' && !actionDate) {
+      alert('Please select the payment date');
+      return;
+    }
     setProcessingAction(`${action}-${invoiceId}`);
     try {
+      const body: Record<string, any> = {};
+      if (actionNotes) body.notes = actionNotes;
+      if (action === 'schedule' && actionDate) body.scheduledDate = actionDate;
+      if (action === 'paid' && actionDate) body.paidDate = actionDate;
+
       const res = await apiFetch(`/invoices/${invoiceId}/${action}`, {
         method: 'POST',
-        body: JSON.stringify({ notes: actionNotes || undefined }),
+        body: JSON.stringify(body),
       });
       if (res.ok) {
+        const approvedInvoice = action === 'approve' ? (selectedInvoice || allInvoices.find(i => i.id === invoiceId) || pendingInvoices.find(i => i.id === invoiceId)) : null;
         setActionNotes('');
+        setActionDate('');
         setSelectedInvoice(null);
+        setActionType('review');
         await Promise.all([fetchPendingInvoices(), fetchAllInvoices(), fetchStats()]);
+
+        // After approval, immediately show schedule modal
+        if (action === 'approve' && approvedInvoice) {
+          setSelectedInvoice({ ...approvedInvoice, status: 'APPROVED' });
+          setActionType('schedule');
+          setActionNotes('');
+          setActionDate('');
+        }
       } else {
         const errorData = await res.json();
         alert(errorData.message || 'Action failed');
@@ -430,6 +508,13 @@ export default function ManagerOperationsPage() {
     } finally {
       setProcessingAction(null);
     }
+  };
+
+  const openActionModal = (invoice: Invoice, type: 'review' | 'schedule' | 'paid') => {
+    setSelectedInvoice(invoice);
+    setActionType(type);
+    setActionNotes('');
+    setActionDate('');
   };
 
   // ─── Filter Chips ────────────────────────────────────────
@@ -555,9 +640,9 @@ export default function ManagerOperationsPage() {
     });
   };
 
-  const sortedPendingInvoices = useMemo(() => sortInvoices(pendingInvoices), [pendingInvoices, invoiceSortConfig]);
-  const sortedAllInvoices = useMemo(() => sortInvoices(allInvoices), [allInvoices, invoiceSortConfig]);
-  const sortedAnalyticsInvoices = useMemo(() => sortInvoices(analyticsInvoices), [analyticsInvoices, invoiceSortConfig]);
+  const sortedPendingInvoices = useMemo(() => sortInvoices(pendingInvoices.filter(inv => inv.status !== 'DRAFT')), [pendingInvoices, invoiceSortConfig]);
+  const sortedAllInvoices = useMemo(() => sortInvoices(allInvoices.filter(inv => inv.status !== 'DRAFT')), [allInvoices, invoiceSortConfig]);
+  const sortedAnalyticsInvoices = useMemo(() => sortInvoices(analyticsInvoices.filter(inv => inv.status !== 'DRAFT')), [analyticsInvoices, invoiceSortConfig]);
 
   // ─── Auth Loading / Guard ────────────────────────────────
   if (loading) {
@@ -645,16 +730,16 @@ export default function ManagerOperationsPage() {
             </span>
           </div>
 
-          {/* Invoice Stats Bar - Compact */}
+          {/* Invoice Stats Bar - Compact (No Draft for manager) */}
           {stats && (
             <div className="grid grid-cols-3 md:grid-cols-6 gap-2 mb-4">
               {[
-                { label: 'Draft', count: stats.statusCounts?.DRAFT || 0, color: 'text-gray-600' },
-                { label: 'Pending', count: stats.statusCounts?.SUBMITTED || 0, color: 'text-blue-600', accent: 'border-l-2 border-l-blue-500' },
+                { label: 'Submitted', count: stats.statusCounts?.SUBMITTED || 0, color: 'text-blue-600', accent: 'border-l-2 border-l-blue-500' },
                 { label: 'Needs Info', count: stats.statusCounts?.NEEDS_INFO || 0, color: 'text-yellow-600' },
                 { label: 'Approved', count: stats.statusCounts?.APPROVED || 0, color: 'text-green-600' },
                 { label: 'Scheduled', count: stats.statusCounts?.SCHEDULED || 0, color: 'text-purple-600' },
                 { label: 'Paid', count: stats.statusCounts?.PAID || 0, color: 'text-emerald-600' },
+                { label: 'Rejected', count: stats.statusCounts?.REJECTED || 0, color: 'text-red-600' },
               ].map(s => (
                 <div key={s.label} className={`card p-2 ${s.accent || ''}`}>
                   <div className={`text-base font-bold ${s.color}`}>{s.count}</div>
@@ -716,12 +801,10 @@ export default function ManagerOperationsPage() {
                   </div>
                   <div>
                     <label className="block text-[10px] font-medium text-gray-700 mb-1">Vendor</label>
-                    <input
-                      type="text"
-                      placeholder="Search..."
+                    <VendorAutocomplete
                       value={filters.vendorNameContains}
-                      onChange={e => { setFilters(prev => ({ ...prev, vendorNameContains: e.target.value })); setInvoicePage(1); }}
-                      className="input-field text-xs py-1.5 w-full"
+                      onChange={val => { setFilters(prev => ({ ...prev, vendorNameContains: val })); setInvoicePage(1); }}
+                      vendors={filterOptions.vendors}
                     />
                   </div>
                   <div>
@@ -751,7 +834,7 @@ export default function ManagerOperationsPage() {
                   <div className="flex items-center gap-2">
                     <label className="text-[10px] font-medium text-gray-700">Status:</label>
                     <div className="flex flex-wrap gap-1">
-                      {['DRAFT', 'SUBMITTED', 'NEEDS_INFO', 'APPROVED', 'SCHEDULED', 'PAID', 'REJECTED'].map(status => (
+                      {['SUBMITTED', 'NEEDS_INFO', 'APPROVED', 'SCHEDULED', 'PAID', 'REJECTED'].map(status => (
                         <button
                           key={status}
                           onClick={() => toggleStatus(status)}
@@ -808,9 +891,11 @@ export default function ManagerOperationsPage() {
             invoices={invoiceSubTab === 'pending' ? sortedPendingInvoices : sortedAllInvoices}
             loading={invoiceSubTab === 'pending' ? loadingInvoices : loadingAllInvoices}
             emptyTitle={invoiceSubTab === 'pending' ? 'No Pending Invoices' : 'No Invoices Found'}
-            emptyMessage={invoiceSubTab === 'pending' ? 'All caught up! No invoices require approval.' : 'No invoices match the selected filters.'}
+            emptyMessage={invoiceSubTab === 'pending' ? 'All caught up! No invoices need your action.' : 'No invoices match the selected filters.'}
             onAction={handleAction}
-            onReview={setSelectedInvoice}
+            onReview={(invoice) => openActionModal(invoice, 'review')}
+            onSchedule={(invoice) => openActionModal(invoice, 'schedule')}
+            onPaid={(invoice) => openActionModal(invoice, 'paid')}
             processingAction={processingAction}
             sortConfig={invoiceSortConfig}
             onSort={handleInvoiceSort}
@@ -829,12 +914,17 @@ export default function ManagerOperationsPage() {
             </div>
           )}
 
-          {/* Review Modal - Compact */}
+          {/* Action Modal - Review / Schedule / Paid */}
           {selectedInvoice && (
             <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
               <div className="bg-white rounded-lg shadow-xl max-w-xl w-full mx-4 max-h-[90vh] overflow-y-auto">
                 <div className="px-4 py-3 border-b">
-                  <h2 className="text-sm font-semibold text-gray-900">Review Invoice</h2>
+                  <h2 className="text-sm font-semibold text-gray-900">
+                    {actionType === 'schedule' ? 'Schedule Payment' : actionType === 'paid' ? 'Mark as Paid' : 'Review Invoice'}
+                  </h2>
+                  {actionType === 'schedule' && selectedInvoice.status === 'APPROVED' && (
+                    <p className="text-[10px] text-gray-500 mt-0.5">Invoice approved. Schedule a payment date or cancel to keep as Approved.</p>
+                  )}
                 </div>
                 <div className="p-4 space-y-3">
                   <div className="grid grid-cols-2 gap-3">
@@ -878,23 +968,52 @@ export default function ManagerOperationsPage() {
                       <p className="text-xs text-gray-700">{selectedInvoice.notes}</p>
                     </div>
                   )}
+
+                  {/* Date picker for Schedule / Paid */}
+                  {(actionType === 'schedule' || actionType === 'paid') && (
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">
+                        {actionType === 'schedule' ? 'Scheduled Payment Date *' : 'Payment Date *'}
+                      </label>
+                      <input
+                        type="date"
+                        value={actionDate}
+                        onChange={e => setActionDate(e.target.value)}
+                        className="input-field text-xs py-1.5"
+                        required
+                      />
+                    </div>
+                  )}
+
                   <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-1">Action Notes</label>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">
+                      {actionType === 'review' ? 'Action Notes' : 'Notes'}{actionType === 'review' ? ' (required for Needs Info/Reject)' : ' (optional)'}
+                    </label>
                     <textarea
                       value={actionNotes}
                       onChange={e => setActionNotes(e.target.value)}
                       rows={2}
-                      placeholder="Notes (required for Needs Info/Reject)"
+                      placeholder={actionType === 'review' ? 'Notes (required for Needs Info/Reject)' : 'Optional notes'}
                       className="input-field text-xs py-1.5"
                     />
                   </div>
                 </div>
                 <div className="px-4 py-3 border-t bg-gray-50 flex justify-between">
-                  <button onClick={() => { setSelectedInvoice(null); setActionNotes(''); }} className="btn-secondary text-xs px-3 py-1.5">Cancel</button>
+                  <button onClick={() => { setSelectedInvoice(null); setActionNotes(''); setActionDate(''); setActionType('review'); }} className="btn-secondary text-xs px-3 py-1.5">Cancel</button>
                   <div className="flex gap-1.5">
-                    <button onClick={() => handleAction('reject', selectedInvoice.id)} disabled={processingAction !== null} className="px-3 py-1.5 bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50 text-xs">Reject</button>
-                    <button onClick={() => handleAction('needs-info', selectedInvoice.id)} disabled={processingAction !== null} className="px-3 py-1.5 bg-yellow-500 text-white rounded hover:bg-yellow-600 disabled:opacity-50 text-xs">Needs Info</button>
-                    <button onClick={() => handleAction('approve', selectedInvoice.id)} disabled={processingAction !== null} className="px-3 py-1.5 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50 text-xs">Approve</button>
+                    {actionType === 'review' && (
+                      <>
+                        <button onClick={() => handleAction('reject', selectedInvoice.id)} disabled={processingAction !== null} className="px-3 py-1.5 bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50 text-xs">Reject</button>
+                        <button onClick={() => handleAction('needs-info', selectedInvoice.id)} disabled={processingAction !== null} className="px-3 py-1.5 bg-yellow-500 text-white rounded hover:bg-yellow-600 disabled:opacity-50 text-xs">Needs Info</button>
+                        <button onClick={() => handleAction('approve', selectedInvoice.id)} disabled={processingAction !== null} className="px-3 py-1.5 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50 text-xs">Approve</button>
+                      </>
+                    )}
+                    {actionType === 'schedule' && (
+                      <button onClick={() => handleAction('schedule', selectedInvoice.id)} disabled={processingAction !== null || !actionDate} className="px-3 py-1.5 bg-purple-600 text-white rounded hover:bg-purple-700 disabled:opacity-50 text-xs">Schedule Payment</button>
+                    )}
+                    {actionType === 'paid' && (
+                      <button onClick={() => handleAction('paid', selectedInvoice.id)} disabled={processingAction !== null || !actionDate} className="px-3 py-1.5 bg-emerald-600 text-white rounded hover:bg-emerald-700 disabled:opacity-50 text-xs">Mark as Paid</button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -954,12 +1073,10 @@ export default function ManagerOperationsPage() {
               </div>
               <div>
                 <label className="block text-[10px] font-medium text-gray-700 mb-1">Vendor</label>
-                <input
-                  type="text"
-                  placeholder="Search..."
+                <VendorAutocomplete
                   value={filters.vendorNameContains}
-                  onChange={e => setFilters(prev => ({ ...prev, vendorNameContains: e.target.value }))}
-                  className="input-field text-xs py-1.5 w-full"
+                  onChange={val => setFilters(prev => ({ ...prev, vendorNameContains: val }))}
+                  vendors={filterOptions.vendors}
                 />
               </div>
               <div>
@@ -982,7 +1099,7 @@ export default function ManagerOperationsPage() {
             <div className="mt-3 pt-3 border-t border-gray-100 flex flex-wrap items-center gap-2">
               <label className="text-[10px] font-medium text-gray-700">Status:</label>
               <div className="flex flex-wrap gap-1">
-                {['DRAFT', 'SUBMITTED', 'NEEDS_INFO', 'APPROVED', 'SCHEDULED', 'PAID', 'REJECTED'].map(status => (
+                {['SUBMITTED', 'NEEDS_INFO', 'APPROVED', 'SCHEDULED', 'PAID', 'REJECTED'].map(status => (
                   <button
                     key={status}
                     onClick={() => toggleStatus(status)}
@@ -1044,24 +1161,33 @@ export default function ManagerOperationsPage() {
 
           {loadingSummary ? (
             <div className="card p-6 text-center text-gray-500 text-xs">Loading analytics...</div>
-          ) : summary ? (
+          ) : summary ? (() => {
+            // Exclude DRAFT from overall stats for manager view
+            const draftGroup = summary.groups.find(g => g.groupKey === 'DRAFT');
+            const adjustedOverall = draftGroup ? {
+              count: summary.overall.count - draftGroup.metrics.count,
+              sumAmount: summary.overall.sumAmount - draftGroup.metrics.sumAmount,
+              sumPaid: summary.overall.sumPaid - draftGroup.metrics.sumPaid,
+              avgAmount: summary.overall.avgAmount,
+            } : summary.overall;
+            return (
             <div className="space-y-4">
               {/* Overall Stats - Compact */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
                 <div className="card p-3">
-                  <div className="text-lg font-bold text-gray-900">{summary.overall.count}</div>
+                  <div className="text-lg font-bold text-gray-900">{adjustedOverall.count}</div>
                   <div className="text-[10px] text-gray-500">Total Invoices</div>
                 </div>
                 <div className="card p-3">
-                  <div className="text-lg font-bold text-primary-600">{formatCurrency(summary.overall.sumAmount)}</div>
+                  <div className="text-lg font-bold text-primary-600">{formatCurrency(adjustedOverall.sumAmount)}</div>
                   <div className="text-[10px] text-gray-500">Total Amount</div>
                 </div>
                 <div className="card p-3">
-                  <div className="text-lg font-bold text-green-600">{formatCurrency(summary.overall.sumPaid)}</div>
+                  <div className="text-lg font-bold text-green-600">{formatCurrency(adjustedOverall.sumPaid)}</div>
                   <div className="text-[10px] text-gray-500">Total Paid</div>
                 </div>
                 <div className="card p-3">
-                  <div className="text-lg font-bold text-red-600">{formatCurrency(summary.overall.sumAmount - summary.overall.sumPaid)}</div>
+                  <div className="text-lg font-bold text-red-600">{formatCurrency(adjustedOverall.sumAmount - adjustedOverall.sumPaid)}</div>
                   <div className="text-[10px] text-gray-500">Total Unpaid</div>
                 </div>
               </div>
@@ -1085,7 +1211,7 @@ export default function ManagerOperationsPage() {
                       </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-100">
-                      {summary.groups.map(group => (
+                      {summary.groups.filter(group => group.groupKey !== 'DRAFT').map(group => (
                         <tr key={group.groupKey} className="hover:bg-gray-50">
                           <td className="px-3 py-2 whitespace-nowrap font-medium text-gray-900">{group.groupLabel}</td>
                           <td className="px-3 py-2 whitespace-nowrap text-right text-gray-900">{group.metrics.count}</td>
@@ -1150,7 +1276,8 @@ export default function ManagerOperationsPage() {
                 </div>
               )}
             </div>
-          ) : (
+            );
+          })() : (
             <div className="card p-6 text-center text-gray-400 text-xs">No analytics data available</div>
           )}
         </>
@@ -1231,77 +1358,55 @@ export default function ManagerOperationsPage() {
                 </div>
               </div>
 
-              {/* Pharmacy Compliance Table - Compact */}
+              {/* Pharmacy Compliance Table - Admin Style */}
               <div className="card overflow-hidden">
-                <div className="px-3 py-2 border-b border-gray-200">
-                  <h3 className="text-xs font-semibold text-gray-900">
-                    Pharmacy Compliance Status
-                  </h3>
+                <div className="px-3 py-2 bg-gray-50 border-b flex items-center justify-between">
+                  <h3 className="text-xs font-semibold text-gray-900">Pharmacy Compliance — {selectedMonth}</h3>
+                  <span className="text-[10px] text-gray-500">{slaSummary.pharmacies.length} pharmacies</span>
                 </div>
                 <div className="overflow-x-auto">
-                  <table className="w-full text-xs">
+                  <table className="min-w-full text-xs">
                     <thead className="bg-gray-50">
                       <tr>
                         <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase">Pharmacy</th>
-                        <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase">Status</th>
-                        <th className="px-3 py-2 text-center font-medium text-gray-500 uppercase">Sub</th>
-                        <th className="px-3 py-2 text-center font-medium text-gray-500 uppercase">Proc</th>
-                        <th className="px-3 py-2 text-center font-medium text-gray-500 uppercase">Sub DL</th>
-                        <th className="px-3 py-2 text-center font-medium text-gray-500 uppercase">Proc DL</th>
-                        <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase">Events</th>
+                        <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase hidden sm:table-cell">Code</th>
+                        <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase hidden md:table-cell">Expected</th>
+                        <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase hidden md:table-cell">Submitted</th>
+                        <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase hidden lg:table-cell">Processed</th>
+                        <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase">Rate</th>
+                        <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase">Submission</th>
+                        <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase">Processing</th>
                       </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-100">
-                      {slaSummary.pharmacies.map(pharmacy => {
-                        const status = getPharmacyStatus(pharmacy);
+                      {slaSummary.pharmacies.length === 0 ? (
+                        <tr><td colSpan={8} className="px-3 py-6 text-center text-gray-400">No data for this month.</td></tr>
+                      ) : slaSummary.pharmacies.map(p => {
+                        const rate = p.expectedCount > 0 ? Math.round((p.processedCount / p.expectedCount) * 100) : 0;
+                        const submissionMissed = p.expectedCount > 0 && !p.submissionDeadlineMet ? p.expectedCount - p.submittedCount : 0;
+                        const processingMissed = p.expectedCount > 0 && !p.processingDeadlineMet ? p.expectedCount - p.processedCount : 0;
+                        const pending = p.submittedCount - p.processedCount;
                         return (
-                          <tr key={pharmacy.pharmacyId} className="hover:bg-gray-50">
-                            <td className="px-3 py-2 whitespace-nowrap">
-                              <div className="font-medium text-gray-900">{pharmacy.pharmacyName}</div>
-                              <div className="text-[10px] text-gray-500">{pharmacy.pharmacyCode}</div>
-                            </td>
-                            <td className="px-3 py-2 whitespace-nowrap">
-                              <span className={`px-1.5 py-0.5 text-[10px] font-medium rounded-full ${COMPLIANCE_BADGES[status]}`}>
-                                {getStatusLabel(status)}
+                          <tr key={p.pharmacyId} className="hover:bg-gray-50">
+                            <td className="px-3 py-2 font-medium text-gray-900">{p.pharmacyName}</td>
+                            <td className="px-3 py-2 font-mono text-gray-500 hidden sm:table-cell">{p.pharmacyCode}</td>
+                            <td className="px-3 py-2 text-gray-500 hidden md:table-cell">{p.expectedCount}</td>
+                            <td className="px-3 py-2 text-gray-500 hidden md:table-cell">{p.submittedCount}</td>
+                            <td className="px-3 py-2 text-gray-500 hidden lg:table-cell">{p.processedCount}</td>
+                            <td className="px-3 py-2">
+                              <span className={`font-semibold ${rate >= 100 ? 'text-emerald-600' : rate >= 50 ? 'text-amber-600' : 'text-red-600'}`}>
+                                {rate}%
                               </span>
-                            </td>
-                            <td className="px-3 py-2 whitespace-nowrap text-center">
-                              <span className={`font-medium ${pharmacy.submittedCount >= pharmacy.expectedCount ? 'text-green-600' : 'text-gray-900'}`}>
-                                {pharmacy.submittedCount}/{pharmacy.expectedCount}
-                              </span>
-                            </td>
-                            <td className="px-3 py-2 whitespace-nowrap text-center">
-                              <span className={`font-medium ${pharmacy.processedCount >= pharmacy.expectedCount ? 'text-green-600' : 'text-gray-900'}`}>
-                                {pharmacy.processedCount}/{pharmacy.expectedCount}
-                              </span>
-                            </td>
-                            <td className="px-3 py-2 whitespace-nowrap text-center">
-                              {pharmacy.submissionDeadlineMet ? (
-                                <span className="text-green-600">✓</span>
-                              ) : (
-                                <span className="text-red-600">✗</span>
-                              )}
-                            </td>
-                            <td className="px-3 py-2 whitespace-nowrap text-center">
-                              {pharmacy.processingDeadlineMet ? (
-                                <span className="text-green-600">✓</span>
-                              ) : (
-                                <span className="text-red-600">✗</span>
-                              )}
                             </td>
                             <td className="px-3 py-2">
-                              {pharmacy.events.length > 0 ? (
-                                <div className="text-[10px] text-gray-600">
-                                  {pharmacy.events.slice(0, 2).map((event, idx) => (
-                                    <div key={idx} className="truncate max-w-[100px]">{event.eventType.replace('_', ' ')}</div>
-                                  ))}
-                                  {pharmacy.events.length > 2 && (
-                                    <div className="text-gray-400">+{pharmacy.events.length - 2}</div>
-                                  )}
-                                </div>
-                              ) : (
-                                <span className="text-gray-400">-</span>
-                              )}
+                              <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold ${submissionMissed > 0 ? 'bg-red-50 text-red-700' : 'bg-emerald-50 text-emerald-700'}`}>
+                                {submissionMissed > 0 ? `${submissionMissed} miss` : 'Met'}
+                              </span>
+                            </td>
+                            <td className="px-3 py-2">
+                              <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold ${processingMissed > 0 ? 'bg-red-50 text-red-700' : pending > 0 ? 'bg-amber-50 text-amber-700' : 'bg-emerald-50 text-emerald-700'}`}>
+                                {processingMissed > 0 ? `${processingMissed} miss` : pending > 0 ? `${pending} pend` : 'Met'}
+                              </span>
                             </td>
                           </tr>
                         );
@@ -1309,10 +1414,48 @@ export default function ManagerOperationsPage() {
                     </tbody>
                   </table>
                 </div>
-                {slaSummary.pharmacies.length === 0 && (
-                  <div className="px-3 py-6 text-center text-gray-500 text-xs">No pharmacies found.</div>
-                )}
               </div>
+
+              {/* SLA Events */}
+              {slaSummary.pharmacies.some(p => p.events.length > 0) && (
+                <div className="card overflow-hidden">
+                  <div className="px-3 py-2 bg-gray-50 border-b">
+                    <h3 className="text-xs font-semibold text-gray-900">
+                      SLA Events ({slaSummary.pharmacies.reduce((sum, p) => sum + p.events.length, 0)})
+                    </h3>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full text-xs">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase">Date</th>
+                          <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase">Pharmacy</th>
+                          <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase">Event Type</th>
+                          <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase hidden md:table-cell">Notes</th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white divide-y divide-gray-100">
+                        {slaSummary.pharmacies.flatMap(p =>
+                          p.events.map((evt, idx) => (
+                            <tr key={`${p.pharmacyId}-${idx}`} className="hover:bg-gray-50">
+                              <td className="px-3 py-2 text-gray-500">{new Date(evt.createdAt).toLocaleString()}</td>
+                              <td className="px-3 py-2 text-gray-900">{p.pharmacyName} <span className="text-[10px] text-gray-400">({p.pharmacyCode})</span></td>
+                              <td className="px-3 py-2">
+                                <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold ${
+                                  evt.eventType.includes('MISSED') ? (evt.eventType.includes('SUBMISSION') ? 'bg-red-50 text-red-700' : 'bg-orange-50 text-orange-700') : 'bg-blue-50 text-blue-700'
+                                }`}>
+                                  {evt.eventType.replace(/_/g, ' ')}
+                                </span>
+                              </td>
+                              <td className="px-3 py-2 text-gray-500 hidden md:table-cell">{evt.notes || '-'}</td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
             </>
           ) : (
             <div className="card p-6 text-center text-gray-400 text-xs">No compliance data available</div>
@@ -1332,6 +1475,8 @@ function InvoiceTable({
   emptyMessage,
   onAction,
   onReview,
+  onSchedule,
+  onPaid,
   processingAction,
   sortConfig,
   onSort,
@@ -1342,6 +1487,8 @@ function InvoiceTable({
   emptyMessage: string;
   onAction: (action: 'approve' | 'needs-info' | 'reject' | 'schedule' | 'paid', id: string) => void;
   onReview: (invoice: Invoice) => void;
+  onSchedule: (invoice: Invoice) => void;
+  onPaid: (invoice: Invoice) => void;
   processingAction: string | null;
   sortConfig: SortConfig;
   onSort: (field: string) => void;
@@ -1429,31 +1576,38 @@ function InvoiceTable({
                         <button
                           onClick={() => onAction('approve', invoice.id)}
                           disabled={processingAction === `approve-${invoice.id}`}
-                          className="text-[11px] font-medium text-green-600 hover:text-green-900 px-1.5 py-0.5 rounded hover:bg-green-50"
+                          className="text-[11px] font-medium text-white bg-green-600 hover:bg-green-700 px-2 py-0.5 rounded disabled:opacity-50"
                         >
-                          ✓
+                          Approve
                         </button>
-                        <button onClick={() => onReview(invoice)} className="text-[11px] font-medium text-yellow-600 hover:text-yellow-900 px-1.5 py-0.5 rounded hover:bg-yellow-50">
-                          ?
+                        <button
+                          onClick={() => onReview(invoice)}
+                          className="text-[11px] font-medium text-white bg-red-600 hover:bg-red-700 px-2 py-0.5 rounded"
+                        >
+                          Reject
+                        </button>
+                        <button
+                          onClick={() => onReview(invoice)}
+                          className="text-[11px] font-medium text-white bg-yellow-500 hover:bg-yellow-600 px-2 py-0.5 rounded"
+                        >
+                          Info?
                         </button>
                       </>
                     )}
                     {invoice.status === 'APPROVED' && (
                       <button
-                        onClick={() => onAction('schedule', invoice.id)}
-                        disabled={processingAction === `schedule-${invoice.id}`}
-                        className="text-[11px] font-medium text-purple-600 hover:text-purple-900 px-1.5 py-0.5 rounded hover:bg-purple-50"
+                        onClick={() => onSchedule(invoice)}
+                        className="text-[11px] font-medium text-white bg-purple-600 hover:bg-purple-700 px-2 py-0.5 rounded"
                       >
-                        Sched
+                        Schedule
                       </button>
                     )}
                     {invoice.status === 'SCHEDULED' && (
                       <button
-                        onClick={() => onAction('paid', invoice.id)}
-                        disabled={processingAction === `paid-${invoice.id}`}
-                        className="text-[11px] font-medium text-emerald-600 hover:text-emerald-900 px-1.5 py-0.5 rounded hover:bg-emerald-50"
+                        onClick={() => onPaid(invoice)}
+                        className="text-[11px] font-medium text-white bg-emerald-600 hover:bg-emerald-700 px-2 py-0.5 rounded"
                       >
-                        Paid
+                        Mark Paid
                       </button>
                     )}
                   </div>

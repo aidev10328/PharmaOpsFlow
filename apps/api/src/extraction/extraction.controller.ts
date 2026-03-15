@@ -8,11 +8,12 @@ import {
   UseGuards,
   UseInterceptors,
   UploadedFile,
+  UploadedFiles,
   Request,
   ForbiddenException,
   BadRequestException,
 } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
+import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -64,6 +65,10 @@ class CreateFromTempDto {
   vendorId?: string;
 
   @IsOptional()
+  @IsString()
+  vendorName?: string;
+
+  @IsOptional()
   @IsUUID()
   invoiceTypeId?: string;
 
@@ -102,6 +107,10 @@ class CreateFromTempDto {
   @IsOptional()
   @IsUUID()
   pharmacyId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  instanceId?: string;
 }
 
 @Controller('extraction')
@@ -186,7 +195,35 @@ export class ExtractionController {
       throw new ForbiddenException('You do not have access to this pharmacy');
     }
 
-    return this.extractionService.createInvoiceFromTempFile({
+    // Auto-create vendor if vendorName provided but no vendorId
+    let resolvedVendorId = dto.vendorId;
+    if (!resolvedVendorId && dto.vendorName?.trim()) {
+      const pharmacy = await this.prisma.pharmacy.findUnique({ where: { id: pharmacyId }, select: { orgId: true } });
+      if (pharmacy) {
+        // Check if vendor with same name already exists (case-insensitive) — active or pending
+        const existingVendor = await this.prisma.vendor.findFirst({
+          where: {
+            orgId: pharmacy.orgId,
+            name: { equals: dto.vendorName.trim(), mode: 'insensitive' },
+          },
+        });
+        if (existingVendor) {
+          resolvedVendorId = existingVendor.id;
+        } else {
+          // Create vendor as pending (isActive=false) for draft invoices, active for submitted
+          const newVendor = await this.prisma.vendor.create({
+            data: {
+              orgId: pharmacy.orgId,
+              name: dto.vendorName.trim(),
+              isActive: !!dto.submit,
+            },
+          });
+          resolvedVendorId = newVendor.id;
+        }
+      }
+    }
+
+    const result = await this.extractionService.createInvoiceFromTempFile({
       pharmacyId,
       tempFilePath: dto.tempFilePath,
       originalName: dto.originalName,
@@ -194,7 +231,7 @@ export class ExtractionController {
       sizeBytes: dto.sizeBytes,
       userId: req.user.id,
       invoiceData: {
-        vendorId: dto.vendorId,
+        vendorId: resolvedVendorId,
         invoiceTypeId: dto.invoiceTypeId,
         invoiceNumber: dto.invoiceNumber,
         accountNumber: dto.accountNumber,
@@ -206,6 +243,385 @@ export class ExtractionController {
       },
       submit: dto.submit,
     });
+
+    // Link to requirement instance if provided
+    if (dto.instanceId && result?.id) {
+      try {
+        await this.prisma.requirementInstance.update({
+          where: { id: dto.instanceId },
+          data: {
+            invoiceId: result.id,
+            status: dto.submit ? 'SUBMITTED' : 'PENDING',
+            submittedAt: dto.submit ? new Date() : null,
+            lastEvaluatedAt: new Date(),
+          },
+        });
+      } catch {
+        // Don't fail invoice creation if linking fails
+      }
+    }
+
+    return result;
+  }
+
+  /**
+   * Bulk extract: accept multiple files, extract each, match to pending instances
+   * POST /extraction/bulk-extract
+   */
+  @Post('bulk-extract')
+  @UseInterceptors(
+    FilesInterceptor('files', 20, {
+      limits: { fileSize: 10 * 1024 * 1024 },
+    }),
+  )
+  async bulkExtract(
+    @UploadedFiles() files: Express.Multer.File[],
+    @Body('pharmacyId') pharmacyId: string,
+    @Request() req,
+  ) {
+    if (!files || files.length === 0) {
+      throw new BadRequestException('No files provided');
+    }
+    if (!pharmacyId) {
+      throw new BadRequestException('Pharmacy ID is required');
+    }
+
+    const hasAccess = await this.checkPharmacyAccess(req.user, pharmacyId);
+    if (!hasAccess) {
+      throw new ForbiddenException('You do not have access to this pharmacy');
+    }
+
+    // Get pending instances for this pharmacy (all periods, not just current month)
+    const pendingInstances = await this.prisma.requirementInstance.findMany({
+      where: {
+        requirement: { pharmacyId, isActive: true },
+        status: { in: ['PENDING', 'OVERDUE'] },
+      },
+      include: {
+        requirement: {
+          include: {
+            vendor: { select: { id: true, name: true } },
+            invoiceType: { select: { id: true, name: true } },
+          },
+        },
+        invoice: { select: { id: true } },
+      },
+      orderBy: { submissionDeadline: 'asc' },
+    });
+
+    // Check for existing invoices in this pharmacy (for duplicate + amount anomaly detection)
+    const existingInvoices = await this.prisma.invoice.findMany({
+      where: { pharmacyId, status: { in: ['DRAFT', 'SUBMITTED', 'APPROVED', 'SCHEDULED', 'PAID'] } },
+      select: { invoiceNumber: true, vendorId: true, amount: true, invoiceDate: true, status: true, vendor: { select: { name: true } } },
+    });
+
+    // Build historical average amounts per vendor for anomaly detection
+    const vendorAmountHistory: Record<string, number[]> = {};
+    for (const inv of existingInvoices) {
+      if (inv.vendorId && inv.amount) {
+        if (!vendorAmountHistory[inv.vendorId]) vendorAmountHistory[inv.vendorId] = [];
+        vendorAmountHistory[inv.vendorId].push(Number(inv.amount));
+      }
+    }
+
+    // Helper: check if invoice date falls within an instance's period
+    const isDateInPeriod = (dateStr: string | null | undefined, inst: typeof pendingInstances[number]): boolean => {
+      if (!dateStr) return false;
+      const d = new Date(dateStr);
+      return d >= inst.periodStart && d <= inst.periodEnd;
+    };
+
+    // Helper: check if vendor matches (by ID or name contains)
+    const isVendorMatch = (vendorId: string | null | undefined, vendorName: string | null | undefined, inst: typeof pendingInstances[number]): boolean => {
+      if (vendorId && inst.requirement.vendorId === vendorId) return true;
+      if (vendorName && inst.requirement.vendor?.name) {
+        const a = vendorName.toLowerCase();
+        const b = inst.requirement.vendor.name.toLowerCase();
+        if (a.includes(b) || b.includes(a)) return true;
+      }
+      return false;
+    };
+
+    // Helper: check if description/name matches requirement name or invoice type
+    const isDescriptionMatch = (vendorName: string | null | undefined, extractedData: any, inst: typeof pendingInstances[number]): boolean => {
+      const reqName = inst.requirement.name?.toLowerCase() || '';
+      const reqDesc = inst.requirement.description?.toLowerCase() || '';
+      const typeName = inst.requirement.invoiceType?.name?.toLowerCase() || '';
+      const extractedVendor = (vendorName || '').toLowerCase();
+      // Check if extracted vendor name or any extracted text has overlap with requirement name/desc/type
+      const candidates = [extractedVendor];
+      if (extractedData?.description) candidates.push(extractedData.description.toLowerCase());
+      for (const text of candidates) {
+        if (!text) continue;
+        const words = text.split(/\s+/).filter((w: string) => w.length > 3);
+        for (const word of words) {
+          if (reqName.includes(word) || reqDesc.includes(word) || typeName.includes(word)) return true;
+        }
+        // Also check if requirement name words appear in extracted text
+        const reqWords = reqName.split(/\s+/).filter((w: string) => w.length > 3);
+        for (const word of reqWords) {
+          if (text.includes(word)) return true;
+        }
+      }
+      return false;
+    };
+
+    // Helper: check if vendors match by ID or name
+    const vendorsMatch = (vid: string | null | undefined, vname: string | null | undefined, existing: typeof existingInvoices[number]): boolean => {
+      if (vid && existing.vendorId === vid) return true;
+      if (vname && existing.vendor?.name) {
+        const a = vname.toLowerCase();
+        const b = existing.vendor.name.toLowerCase();
+        if (a === b || a.includes(b) || b.includes(a)) return true;
+      }
+      return false;
+    };
+
+    // Helper: check duplicate — multiple signals: invoice number, vendor+date, vendor+amount
+    const isDuplicateCheck = (vendorId: string | null | undefined, vendorName: string | null | undefined, invoiceNumber: string | null | undefined, invoiceDate: string | null | undefined, amount: number | null | undefined): boolean => {
+      return existingInvoices.some(e => {
+        const vendorMatches = vendorsMatch(vendorId, vendorName, e);
+
+        // Signal 1: Same invoice number — always flag as duplicate
+        // Same invoice number in the same pharmacy is almost certainly a duplicate
+        if (invoiceNumber && e.invoiceNumber) {
+          const a = invoiceNumber.toLowerCase().trim();
+          const b = e.invoiceNumber.toLowerCase().trim();
+          if (a === b) return true;
+        }
+
+        // Signal 2: Same vendor + same invoice date + similar amount
+        if (vendorMatches && invoiceDate && e.invoiceDate) {
+          const extDate = new Date(invoiceDate).toISOString().slice(0, 10);
+          const existDate = new Date(e.invoiceDate).toISOString().slice(0, 10);
+          if (extDate === existDate) {
+            // Same vendor + same date = likely duplicate
+            if (amount && e.amount && Math.abs(Number(e.amount) - amount) < 0.01) return true;
+            // Same vendor + same date + same invoice number
+            if (invoiceNumber && e.invoiceNumber && invoiceNumber.toLowerCase().trim() === e.invoiceNumber.toLowerCase().trim()) return true;
+          }
+        }
+
+        // Signal 3: Same vendor + same amount + dates within 3 days
+        if (vendorMatches && amount && e.amount && Math.abs(Number(e.amount) - amount) < 0.01 && invoiceDate && e.invoiceDate) {
+          const daysDiff = Math.abs(new Date(invoiceDate).getTime() - new Date(e.invoiceDate).getTime()) / (1000 * 60 * 60 * 24);
+          if (daysDiff <= 3) return true;
+        }
+
+        return false;
+      });
+    };
+
+    // Helper: check amount anomaly (> 3x or < 0.2x the average for this vendor)
+    const checkAmountAnomaly = (vendorId: string | null | undefined, amount: number | null | undefined): { isAnomaly: boolean; avgAmount?: number; message?: string } => {
+      if (!vendorId || !amount || !vendorAmountHistory[vendorId] || vendorAmountHistory[vendorId].length < 2) {
+        return { isAnomaly: false };
+      }
+      const history = vendorAmountHistory[vendorId];
+      const avg = history.reduce((s, v) => s + v, 0) / history.length;
+      if (avg === 0) return { isAnomaly: false };
+      const ratio = amount / avg;
+      if (ratio > 3) {
+        return { isAnomaly: true, avgAmount: Math.round(avg * 100) / 100, message: `Amount $${amount} is ${ratio.toFixed(1)}x higher than average $${avg.toFixed(2)} for this vendor` };
+      }
+      if (ratio < 0.2) {
+        return { isAnomaly: true, avgAmount: Math.round(avg * 100) / 100, message: `Amount $${amount} is much lower than average $${avg.toFixed(2)} for this vendor` };
+      }
+      return { isAnomaly: false, avgAmount: Math.round(avg * 100) / 100 };
+    };
+
+    // Extract each file
+    const results: any[] = [];
+    for (const file of files) {
+      try {
+        const extraction = await this.extractionService.extractOnly({
+          pharmacyId,
+          file,
+          userId: req.user.id,
+        });
+
+        const invoiceDate = extraction.extractedData?.invoiceDate;
+        const vendorId = extraction.matchedVendorId;
+        const vendorName = extraction.extractedData?.vendorName;
+        const invoiceNumber = extraction.extractedData?.invoiceNumber;
+        const amount = extraction.extractedData?.amount;
+
+        // Check for duplicate
+        const duplicate = isDuplicateCheck(vendorId, vendorName, invoiceNumber, invoiceDate, amount);
+
+        // Check amount anomaly
+        const amountAnomaly = checkAmountAnomaly(vendorId, amount);
+
+        // Find best matching instance
+        let matchedInstance: typeof pendingInstances[number] | null = null;
+        let matchConfidence: 'high' | 'medium' | 'low' | 'none' = 'none';
+        let dateInPeriod = false;
+        let descMatch = false;
+
+        // Try to match against pending instances
+        for (const inst of pendingInstances) {
+          if (results.some(r => r.matchedInstance?.id === inst.id)) continue;
+          if (inst.invoice) continue;
+
+          const vMatch = isVendorMatch(vendorId, vendorName, inst);
+          const dMatch = isDateInPeriod(invoiceDate, inst);
+          const typeMatch = extraction.matchedInvoiceTypeId &&
+            inst.requirement.invoiceTypeId === extraction.matchedInvoiceTypeId;
+          const dscMatch = isDescriptionMatch(vendorName, extraction.extractedData, inst);
+
+          // Best: vendor + date in period + type
+          if (vMatch && dMatch && typeMatch) {
+            matchedInstance = inst;
+            matchConfidence = 'high';
+            dateInPeriod = true;
+            descMatch = dscMatch;
+            break;
+          }
+          // Good: vendor + date in period
+          if (vMatch && dMatch && (matchConfidence === 'none' || matchConfidence === 'low')) {
+            matchedInstance = inst;
+            matchConfidence = 'high';
+            dateInPeriod = true;
+            descMatch = dscMatch;
+          }
+          // Medium: vendor matches but date doesn't fall in period
+          if (vMatch && !dMatch && (matchConfidence === 'none' || matchConfidence === 'low')) {
+            matchedInstance = inst;
+            matchConfidence = 'medium';
+            dateInPeriod = false;
+            descMatch = dscMatch;
+          }
+          // Low: no vendor match but description/type matches
+          if (!vMatch && dscMatch && matchConfidence === 'none') {
+            matchedInstance = inst;
+            matchConfidence = 'low';
+            dateInPeriod = dMatch;
+            descMatch = true;
+          }
+        }
+
+        // Determine category:
+        // 1 = "current_match" - vendor + dates match current period instance
+        // 2 = "vendor_match_diff_dates" - vendor matches but dates are past/future
+        // 3 = "type_match_no_vendor" - description/type matches a requirement but vendor doesn't
+        // 4 = "new_same_month" - no match but invoice date is current month
+        // 5 = "no_match" - nothing matches or duplicate
+        let category: 'current_match' | 'vendor_match_diff_dates' | 'type_match_no_vendor' | 'new_same_month' | 'no_match';
+
+        if (duplicate) {
+          category = 'no_match';
+        } else if (matchedInstance && (matchConfidence === 'high') && dateInPeriod) {
+          category = 'current_match';
+        } else if (matchedInstance && matchConfidence === 'medium') {
+          category = 'vendor_match_diff_dates';
+        } else if (matchedInstance && matchConfidence === 'high' && !dateInPeriod) {
+          // vendor matched but date didn't fall in period (shouldn't normally happen but handle it)
+          category = 'vendor_match_diff_dates';
+        } else if (matchedInstance && matchConfidence === 'low' && descMatch) {
+          category = 'type_match_no_vendor';
+        } else {
+          const now = new Date();
+          const invDate = invoiceDate ? new Date(invoiceDate) : null;
+          const isCurrentMonth = invDate &&
+            invDate.getMonth() === now.getMonth() &&
+            invDate.getFullYear() === now.getFullYear();
+          category = isCurrentMonth ? 'new_same_month' : 'no_match';
+        }
+
+        results.push({
+          fileName: file.originalname,
+          tempFilePath: extraction.tempFilePath,
+          originalName: extraction.originalName,
+          mimeType: extraction.mimeType,
+          sizeBytes: extraction.sizeBytes,
+          extractedData: extraction.extractedData,
+          confidence: extraction.confidence,
+          matchedVendorId: extraction.matchedVendorId,
+          matchedInvoiceTypeId: extraction.matchedInvoiceTypeId,
+          matchedInstance: matchedInstance ? {
+            id: matchedInstance.id,
+            requirementName: matchedInstance.requirement.name,
+            vendorName: matchedInstance.requirement.vendor?.name || null,
+            invoiceTypeName: matchedInstance.requirement.invoiceType?.name || null,
+            periodLabel: matchedInstance.periodLabel,
+            periodStart: matchedInstance.periodStart,
+            periodEnd: matchedInstance.periodEnd,
+            submissionDeadline: matchedInstance.submissionDeadline,
+            alreadyHasInvoice: !!matchedInstance.invoice,
+          } : null,
+          matchConfidence,
+          category,
+          isDuplicate: duplicate,
+          amountAnomaly: amountAnomaly.isAnomaly ? amountAnomaly.message : null,
+          avgAmount: amountAnomaly.avgAmount || null,
+          error: null,
+        });
+      } catch (err: any) {
+        results.push({
+          fileName: file.originalname,
+          tempFilePath: null,
+          originalName: file.originalname,
+          mimeType: file.mimetype,
+          sizeBytes: file.size,
+          extractedData: null,
+          confidence: null,
+          matchedVendorId: null,
+          matchedInvoiceTypeId: null,
+          matchedInstance: null,
+          matchConfidence: 'none',
+          category: 'no_match',
+          isDuplicate: false,
+          amountAnomaly: null,
+          avgAmount: null,
+          error: err.message || 'Extraction failed',
+        });
+      }
+    }
+
+    // Post-processing: detect multiple files from same vendor in this batch
+    const vendorFileCounts: Record<string, number> = {};
+    for (const r of results) {
+      const vid = r.matchedVendorId || r.extractedData?.vendorName?.toLowerCase();
+      if (vid) {
+        vendorFileCounts[vid] = (vendorFileCounts[vid] || 0) + 1;
+      }
+    }
+    for (const r of results) {
+      const vid = r.matchedVendorId || r.extractedData?.vendorName?.toLowerCase();
+      r.multiSameVendor = vid && vendorFileCounts[vid] > 1
+        ? `${vendorFileCounts[vid]} invoices from this vendor in this batch`
+        : null;
+    }
+
+    // Group pending instances by period for the frontend dropdown
+    const now = new Date();
+    const currentMonth = now.getMonth();
+    const currentYear = now.getFullYear();
+
+    const availableInstances = pendingInstances
+      .filter(i => !i.invoice)
+      .map(i => {
+        const pStart = new Date(i.periodStart);
+        const monthDiff = (pStart.getFullYear() - currentYear) * 12 + (pStart.getMonth() - currentMonth);
+        return {
+          id: i.id,
+          requirementName: i.requirement.name,
+          vendorName: i.requirement.vendor?.name || null,
+          invoiceTypeName: i.requirement.invoiceType?.name || null,
+          periodLabel: i.periodLabel,
+          periodStart: i.periodStart,
+          periodEnd: i.periodEnd,
+          submissionDeadline: i.submissionDeadline,
+          monthDiff, // negative = past, 0 = current, positive = future
+        };
+      })
+      // Limit to 2 months past and 2 months future
+      .filter(i => i.monthDiff >= -2 && i.monthDiff <= 2);
+
+    return {
+      results,
+      pendingInstances: availableInstances,
+    };
   }
 
   /**
@@ -379,20 +795,23 @@ export class ExtractionController {
       return this.extractionService.getInvoicesNeedingReview(pharmacyId);
     }
 
-    // Company manager can see org-wide
+    // Company manager can see assigned pharmacies
     if (req.user.role === Role.COMPANY_MANAGER) {
       if (pharmacyId) {
-        // Verify pharmacy is in their org
-        const pharmacy = await this.prisma.pharmacy.findUnique({
-          where: { id: pharmacyId },
-          select: { orgId: true },
+        const assignment = await this.prisma.managerPharmacy.findUnique({
+          where: { userId_pharmacyId: { userId: req.user.id, pharmacyId } },
         });
-        if (pharmacy?.orgId !== req.user.orgId) {
+        if (!assignment) {
           throw new ForbiddenException('You do not have access to this pharmacy');
         }
         return this.extractionService.getInvoicesNeedingReview(pharmacyId);
       }
-      return this.extractionService.getInvoicesNeedingReview(undefined, req.user.orgId);
+      // Get all assigned pharmacy IDs for review
+      const assignments = await this.prisma.managerPharmacy.findMany({
+        where: { userId: req.user.id },
+        select: { pharmacyId: true },
+      });
+      return this.extractionService.getInvoicesNeedingReview(undefined, req.user.orgId, assignments.map(a => a.pharmacyId));
     }
 
     // Pharmacy users can see their pharmacies
@@ -455,9 +874,12 @@ export class ExtractionController {
 
     if (!invoice) return false;
 
-    // Check if manager has org access
+    // Check if manager is assigned to this pharmacy
     if (user.role === Role.COMPANY_MANAGER) {
-      return invoice.pharmacy.orgId === user.orgId;
+      const assignment = await this.prisma.managerPharmacy.findUnique({
+        where: { userId_pharmacyId: { userId: user.id, pharmacyId: invoice.pharmacyId } },
+      });
+      return !!assignment;
     }
 
     // Check pharmacy membership
@@ -497,9 +919,12 @@ export class ExtractionController {
 
     if (!pharmacy) return false;
 
-    // Check if manager has org access
+    // Check if manager is assigned to this pharmacy
     if (user.role === Role.COMPANY_MANAGER) {
-      return pharmacy.orgId === user.orgId;
+      const assignment = await this.prisma.managerPharmacy.findUnique({
+        where: { userId_pharmacyId: { userId: user.id, pharmacyId } },
+      });
+      return !!assignment;
     }
 
     // Check pharmacy membership

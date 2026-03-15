@@ -13,6 +13,10 @@ import {
   UpdateVendorDto,
   MergeVendorDto,
   CreateRequiredInvoiceDto,
+  CreateFrequencyDto,
+  UpdateFrequencyDto,
+  CreateInvoiceCategoryDto,
+  UpdateInvoiceCategoryDto,
 } from './dto';
 
 @Injectable()
@@ -424,5 +428,231 @@ export class ReferenceService {
     });
 
     return { success: true };
+  }
+
+  // ===== Frequencies =====
+
+  async listFrequencies() {
+    return this.prisma.frequency.findMany({
+      orderBy: { sortOrder: 'asc' },
+    });
+  }
+
+  async createFrequency(dto: CreateFrequencyDto, actorUserId: string) {
+    let orgId = dto.orgId;
+    if (!orgId) {
+      const firstOrg = await this.prisma.org.findFirst();
+      if (!firstOrg) throw new NotFoundException('Organization not found');
+      orgId = firstOrg.id;
+    }
+
+    const existing = await this.prisma.frequency.findUnique({
+      where: { orgId_code: { orgId, code: dto.code.toUpperCase() } },
+    });
+    if (existing) throw new ConflictException(`Frequency code "${dto.code}" already exists`);
+
+    const frequency = await this.prisma.frequency.create({
+      data: {
+        orgId,
+        name: dto.name,
+        code: dto.code.toUpperCase(),
+        description: dto.description,
+        sortOrder: dto.sortOrder ?? 0,
+      },
+    });
+
+    await this.auditLog.log({
+      actorUserId,
+      action: 'frequency.created',
+      entityType: 'Frequency',
+      entityId: frequency.id,
+      after: frequency,
+    });
+
+    return frequency;
+  }
+
+  async updateFrequency(id: string, dto: UpdateFrequencyDto, actorUserId: string) {
+    const frequency = await this.prisma.frequency.findUnique({ where: { id } });
+    if (!frequency) throw new NotFoundException('Frequency not found');
+
+    const before = { ...frequency };
+
+    const updated = await this.prisma.frequency.update({
+      where: { id },
+      data: {
+        ...(dto.name !== undefined && { name: dto.name }),
+        ...(dto.description !== undefined && { description: dto.description }),
+        ...(dto.sortOrder !== undefined && { sortOrder: dto.sortOrder }),
+      },
+    });
+
+    await this.auditLog.log({
+      actorUserId,
+      action: 'frequency.updated',
+      entityType: 'Frequency',
+      entityId: id,
+      before,
+      after: updated,
+    });
+
+    return updated;
+  }
+
+  async deactivateFrequency(id: string, actorUserId: string) {
+    const frequency = await this.prisma.frequency.findUnique({ where: { id } });
+    if (!frequency) throw new NotFoundException('Frequency not found');
+    if (!frequency.isActive) throw new BadRequestException('Frequency is already inactive');
+
+    const updated = await this.prisma.frequency.update({
+      where: { id },
+      data: { isActive: false },
+    });
+
+    await this.auditLog.log({
+      actorUserId,
+      action: 'frequency.deactivated',
+      entityType: 'Frequency',
+      entityId: id,
+      before: { isActive: true },
+      after: { isActive: false },
+    });
+
+    return updated;
+  }
+
+  async reactivateFrequency(id: string, actorUserId: string) {
+    const frequency = await this.prisma.frequency.findUnique({ where: { id } });
+    if (!frequency) throw new NotFoundException('Frequency not found');
+    if (frequency.isActive) throw new BadRequestException('Frequency is already active');
+
+    const updated = await this.prisma.frequency.update({
+      where: { id },
+      data: { isActive: true },
+    });
+
+    await this.auditLog.log({
+      actorUserId,
+      action: 'frequency.reactivated',
+      entityType: 'Frequency',
+      entityId: id,
+      before: { isActive: false },
+      after: { isActive: true },
+    });
+
+    return updated;
+  }
+
+  // ===== Invoice Categories =====
+
+  async listInvoiceCategories() {
+    return this.prisma.invoiceCategory.findMany({
+      orderBy: { sortOrder: 'asc' },
+    });
+  }
+
+  async createInvoiceCategory(dto: CreateInvoiceCategoryDto, actorUserId: string) {
+    let orgId = dto.orgId;
+    if (!orgId) {
+      const firstOrg = await this.prisma.org.findFirst();
+      if (!firstOrg) throw new NotFoundException('Organization not found');
+      orgId = firstOrg.id;
+    }
+
+    const existing = await this.prisma.invoiceCategory.findUnique({
+      where: { orgId_code: { orgId, code: dto.code.toUpperCase() } },
+    });
+    if (existing) throw new ConflictException(`Invoice category code "${dto.code}" already exists`);
+
+    const category = await this.prisma.invoiceCategory.create({
+      data: {
+        orgId,
+        name: dto.name,
+        code: dto.code.toUpperCase(),
+        description: dto.description,
+        sortOrder: dto.sortOrder ?? 0,
+      },
+    });
+
+    await this.auditLog.log({
+      actorUserId,
+      action: 'invoice_category.created',
+      entityType: 'InvoiceCategory',
+      entityId: category.id,
+      after: category,
+    });
+
+    return category;
+  }
+
+  async updateInvoiceCategory(id: string, dto: UpdateInvoiceCategoryDto, actorUserId: string) {
+    const category = await this.prisma.invoiceCategory.findUnique({ where: { id } });
+    if (!category) throw new NotFoundException('Invoice category not found');
+
+    const before = { ...category };
+
+    const updated = await this.prisma.invoiceCategory.update({
+      where: { id },
+      data: {
+        ...(dto.name !== undefined && { name: dto.name }),
+        ...(dto.description !== undefined && { description: dto.description }),
+        ...(dto.sortOrder !== undefined && { sortOrder: dto.sortOrder }),
+      },
+    });
+
+    await this.auditLog.log({
+      actorUserId,
+      action: 'invoice_category.updated',
+      entityType: 'InvoiceCategory',
+      entityId: id,
+      before,
+      after: updated,
+    });
+
+    return updated;
+  }
+
+  async deactivateInvoiceCategory(id: string, actorUserId: string) {
+    const category = await this.prisma.invoiceCategory.findUnique({ where: { id } });
+    if (!category) throw new NotFoundException('Invoice category not found');
+    if (!category.isActive) throw new BadRequestException('Invoice category is already inactive');
+
+    const updated = await this.prisma.invoiceCategory.update({
+      where: { id },
+      data: { isActive: false },
+    });
+
+    await this.auditLog.log({
+      actorUserId,
+      action: 'invoice_category.deactivated',
+      entityType: 'InvoiceCategory',
+      entityId: id,
+      before: { isActive: true },
+      after: { isActive: false },
+    });
+
+    return updated;
+  }
+
+  async reactivateInvoiceCategory(id: string, actorUserId: string) {
+    const category = await this.prisma.invoiceCategory.findUnique({ where: { id } });
+    if (!category) throw new NotFoundException('Invoice category not found');
+    if (category.isActive) throw new BadRequestException('Invoice category is already active');
+
+    const updated = await this.prisma.invoiceCategory.update({
+      where: { id },
+      data: { isActive: true },
+    });
+
+    await this.auditLog.log({
+      actorUserId,
+      action: 'invoice_category.reactivated',
+      entityType: 'InvoiceCategory',
+      entityId: id,
+      before: { isActive: false },
+      after: { isActive: true },
+    });
+
+    return updated;
   }
 }

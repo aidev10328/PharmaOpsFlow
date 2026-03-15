@@ -124,15 +124,7 @@ export default function AdminDashboardPage() {
     : 0;
 
   return (
-    <div className="max-w-7xl mx-auto space-y-3">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-heading font-bold text-gray-900">System Administration</h1>
-        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-red-50 text-red-700">
-          System Admin
-        </span>
-      </div>
-
+    <div className="space-y-3">
       {/* Metrics Cards */}
       {loadingMetrics ? (
         <div className="grid grid-cols-3 md:grid-cols-6 gap-2">
@@ -191,7 +183,7 @@ export default function AdminDashboardPage() {
       {/* Charts */}
       {metrics && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-          <div className="card p-3">
+          <div className="card p-3 overflow-hidden">
             <h3 className="text-xs font-heading font-semibold text-gray-900 mb-2">Invoice Status</h3>
             {Object.keys(metrics.invoiceStatusCounts).length > 0 ? (
               <div className="h-[200px]">
@@ -203,10 +195,10 @@ export default function AdminDashboardPage() {
               </div>
             )}
           </div>
-          <div className="card p-3">
+          <div className="card p-3 overflow-hidden">
             <h3 className="text-xs font-heading font-semibold text-gray-900 mb-2">SLA by Pharmacy</h3>
             {metrics.slaPharmacies.length > 0 ? (
-              <div className="h-[200px]">
+              <div className="h-[290px]">
                 <SlaComplianceBar
                   pharmacies={metrics.slaPharmacies.map(p => ({
                     pharmacyName: p.pharmacyName,

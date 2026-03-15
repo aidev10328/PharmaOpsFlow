@@ -182,7 +182,7 @@ export default function NotificationLogsPage() {
   if (!user || !['ADMIN', 'COMPANY_MANAGER'].includes(user.role)) return null;
 
   return (
-    <div className="max-w-6xl mx-auto space-y-3">
+    <div className="space-y-3">
       <div>
         <h1 className="text-lg font-heading font-bold text-gray-900">Notification Logs</h1>
         <p className="text-xs text-gray-500">Delivery status and history — {totalCount} total</p>

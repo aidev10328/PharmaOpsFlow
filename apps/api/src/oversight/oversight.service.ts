@@ -412,7 +412,7 @@ export class OversightService {
   // SLA & Compliance Oversight
   // =============================================
 
-  async getSlaEvents(query: OversightSlaEventsQueryDto) {
+  async getSlaEvents(query: OversightSlaEventsQueryDto, user?: any) {
     const page = query.page || 1;
     const limit = query.limit || 20;
     const skip = (page - 1) * limit;
@@ -421,6 +421,17 @@ export class OversightService {
     if (query.month) where.yearMonth = query.month;
     if (query.pharmacyId) where.pharmacyId = query.pharmacyId;
     if (query.eventType) where.eventType = query.eventType;
+
+    // Scope to manager's assigned pharmacies
+    if (user?.role === 'COMPANY_MANAGER') {
+      const assignments = await this.prisma.managerPharmacy.findMany({
+        where: { userId: user.id },
+        select: { pharmacyId: true },
+      });
+      where.pharmacyId = query.pharmacyId
+        ? query.pharmacyId
+        : { in: assignments.map(a => a.pharmacyId) };
+    }
 
     const [data, totalCount] = await Promise.all([
       this.prisma.slaEvent.findMany({
@@ -445,16 +456,32 @@ export class OversightService {
     };
   }
 
-  async getSlaSummary(month?: string) {
+  async getSlaSummary(month?: string, user?: any) {
     const now = new Date();
     const yearMonth =
       month || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 
-    // Get org (single-tenant assumption)
-    const org = await this.prisma.org.findFirst();
-    if (!org) throw new NotFoundException('No organization found');
+    // Get org - use user's org for managers, or first org for admin
+    let orgId: string | undefined;
+    if (user?.orgId) {
+      orgId = user.orgId;
+    } else {
+      const org = await this.prisma.org.findFirst();
+      if (!org) throw new NotFoundException('No organization found');
+      orgId = org.id;
+    }
 
-    return this.invoiceQuery.getSlaSummary(yearMonth, org.id);
+    // For managers, scope to their assigned pharmacies
+    let assignedPharmacyIds: string[] | undefined;
+    if (user?.role === 'COMPANY_MANAGER') {
+      const assignments = await this.prisma.managerPharmacy.findMany({
+        where: { userId: user.id },
+        select: { pharmacyId: true },
+      });
+      assignedPharmacyIds = assignments.map(a => a.pharmacyId);
+    }
+
+    return this.invoiceQuery.getSlaSummary(yearMonth, orgId, assignedPharmacyIds);
   }
 
   // =============================================

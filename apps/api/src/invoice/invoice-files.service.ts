@@ -283,9 +283,12 @@ export class InvoiceFilesService {
     // Admin has access to everything
     if (userRole === Role.ADMIN) return true;
 
-    // Manager has access to invoices in their org
+    // Manager has access to assigned pharmacies in their org
     if (userRole === Role.COMPANY_MANAGER && userOrgId === invoice.pharmacy.orgId) {
-      return true;
+      const assignment = await this.prisma.managerPharmacy.findUnique({
+        where: { userId_pharmacyId: { userId, pharmacyId: invoice.pharmacyId } },
+      });
+      return !!assignment;
     }
 
     // Check pharmacy membership

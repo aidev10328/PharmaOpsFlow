@@ -25,13 +25,13 @@ export class OversightOpsController {
   constructor(private readonly oversightService: OversightService) {}
 
   @Get('sla/events')
-  async getSlaEvents(@Query() query: OversightSlaEventsQueryDto) {
-    return this.oversightService.getSlaEvents(query);
+  async getSlaEvents(@Query() query: OversightSlaEventsQueryDto, @Request() req: any) {
+    return this.oversightService.getSlaEvents(query, req.user);
   }
 
   @Get('sla/summary')
-  async getSlaSummary(@Query() query: OversightSlaSummaryQueryDto) {
-    return this.oversightService.getSlaSummary(query.month);
+  async getSlaSummary(@Query() query: OversightSlaSummaryQueryDto, @Request() req: any) {
+    return this.oversightService.getSlaSummary(query.month, req.user);
   }
 
   @Get('automation')

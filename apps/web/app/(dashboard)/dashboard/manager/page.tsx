@@ -24,6 +24,7 @@ type Pharmacy = {
 
 type InvoiceStats = {
   statusCounts: Record<string, number>;
+  statusAmounts: Record<string, number>;
   totalAmount: number;
   upcomingDue: number;
 };
@@ -143,7 +144,9 @@ export default function ManagerDashboard() {
   if (!user) return null;
 
   const totalInvoices = stats
-    ? Object.values(stats.statusCounts).reduce((sum, count) => sum + count, 0)
+    ? Object.entries(stats.statusCounts)
+        .filter(([status]) => status !== 'DRAFT')
+        .reduce((sum, [, count]) => sum + (count as number), 0)
     : 0;
 
   const pendingReview = stats
@@ -171,7 +174,7 @@ export default function ManagerDashboard() {
       </div>
 
       {/* Section 1: Key Metric Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
         <div className="card p-5">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center flex-shrink-0">
@@ -216,6 +219,27 @@ export default function ManagerDashboard() {
           </div>
         </div>
 
+        {(() => {
+          const missedTotal = (slaSummary?.totals.submissionMissedTotal || 0) + (slaSummary?.totals.processingMissedTotal || 0);
+          return (
+            <div className={`card p-5 ${missedTotal > 0 ? '!border-2 !border-red-400 !bg-red-600 shadow-lg animate-pulse' : '!border-2 !border-red-300 !bg-red-50'}`}>
+              <div className="flex items-center gap-3">
+                <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${missedTotal > 0 ? 'bg-red-500' : 'bg-red-100'}`}>
+                  <svg className={`w-5 h-5 ${missedTotal > 0 ? 'text-white' : 'text-red-400'}`} fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                  </svg>
+                </div>
+                <div>
+                  <div className={`text-2xl font-bold ${missedTotal > 0 ? 'text-white' : 'text-red-600'}`}>
+                    {missedTotal}
+                  </div>
+                  <div className={`text-xs font-semibold ${missedTotal > 0 ? 'text-red-100' : 'text-red-600'}`}>SLA Missed</div>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+
         <div className="card p-5">
           <div className="flex items-center gap-3">
             <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${pendingReview > 0 ? 'bg-amber-50' : 'bg-gray-50'}`}>
@@ -240,7 +264,10 @@ export default function ManagerDashboard() {
             Invoice Status Distribution
           </h3>
           {stats?.statusCounts ? (
-            <InvoiceStatusDonut statusCounts={stats.statusCounts} />
+            <InvoiceStatusDonut
+              statusCounts={Object.fromEntries(Object.entries(stats.statusCounts).filter(([s]) => s !== 'DRAFT'))}
+              statusAmounts={Object.fromEntries(Object.entries(stats.statusAmounts).filter(([s]) => s !== 'DRAFT'))}
+            />
           ) : (
             <div className="h-[280px] flex items-center justify-center text-gray-400 text-sm">
               No data available
@@ -280,7 +307,7 @@ export default function ManagerDashboard() {
                 key={pharmacy.id}
                 className="card p-5 hover:shadow-md transition-shadow"
               >
-                {/* Header: Code + Status Badges */}
+                {/* Header: Code + Status Badges + Members */}
                 <div className="flex items-center justify-between mb-3">
                   <span className="font-mono text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded">
                     {pharmacy.code}
@@ -301,6 +328,9 @@ export default function ManagerDashboard() {
                     )}
                     <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${isActive ? 'bg-emerald-50 text-emerald-700' : 'bg-gray-100 text-gray-500'}`}>
                       {isActive ? 'Active' : 'Inactive'}
+                    </span>
+                    <span className="text-xs text-gray-400" title="Members">
+                      {pharmacy._count?.members ?? 0} <svg className="w-3 h-3 inline -mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0" /></svg>
                     </span>
                   </div>
                 </div>
@@ -335,16 +365,22 @@ export default function ManagerDashboard() {
                   )}
                 </div>
 
-                {/* Footer: Members count + SLA details */}
-                <div className="mt-4 pt-3 border-t border-gray-100 flex items-center justify-between">
-                  <span className="text-xs text-gray-500">
-                    {pharmacy._count?.members ?? 0} member(s)
-                  </span>
-                  {slaData && (
-                    <div className="flex items-center gap-3 text-xs text-gray-500">
+                {/* Footer: SLA details with overdue */}
+                <div className="mt-4 pt-3 border-t border-gray-100">
+                  {slaData ? (
+                    <div className="flex items-center justify-between text-xs text-gray-500">
                       <span title="Submitted">{slaData.submittedCount}/{slaData.totalExpected} submitted</span>
                       <span title="Processed">{slaData.processedCount}/{slaData.totalExpected} processed</span>
+                      {(slaData.submissionMissed + slaData.processingMissed) > 0 ? (
+                        <span className="text-red-600 font-medium" title="Overdue (submission + processing missed)">
+                          {slaData.submissionMissed + slaData.processingMissed} overdue
+                        </span>
+                      ) : (
+                        <span className="text-green-600 font-medium">0 overdue</span>
+                      )}
                     </div>
+                  ) : (
+                    <div className="text-xs text-gray-400">No SLA data</div>
                   )}
                 </div>
               </div>

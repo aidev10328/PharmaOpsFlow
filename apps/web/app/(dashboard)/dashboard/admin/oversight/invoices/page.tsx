@@ -215,7 +215,7 @@ export default function InvoiceOversightPage() {
   };
 
   return (
-    <div className="max-w-6xl mx-auto space-y-3">
+    <div className="space-y-3">
       <div>
         <h1 className="text-lg font-heading font-bold text-gray-900">Invoice Oversight</h1>
         <p className="text-xs text-gray-500">All invoices across all pharmacies — {totalCount} total</p>

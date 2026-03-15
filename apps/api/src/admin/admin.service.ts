@@ -45,9 +45,14 @@ export class AdminService {
       where: { id: org.id },
       data: {
         ...(dto.name !== undefined && { name: dto.name }),
+        ...(dto.phone !== undefined && { phone: dto.phone }),
+        ...(dto.email !== undefined && { email: dto.email }),
+        ...(dto.website !== undefined && { website: dto.website }),
+        ...(dto.street !== undefined && { street: dto.street }),
+        ...(dto.city !== undefined && { city: dto.city }),
+        ...(dto.state !== undefined && { state: dto.state }),
+        ...(dto.zip !== undefined && { zip: dto.zip }),
         ...(dto.timezone !== undefined && { timezone: dto.timezone }),
-        ...(dto.submissionDueDay !== undefined && { submissionDueDay: dto.submissionDueDay }),
-        ...(dto.processingDueDay !== undefined && { processingDueDay: dto.processingDueDay }),
       },
     });
 
@@ -65,10 +70,24 @@ export class AdminService {
 
   // ===== Pharmacy Management =====
 
-  async listPharmacies(user?: { role: string; orgId?: string }) {
-    const where = user?.role === 'COMPANY_MANAGER' && user.orgId
-      ? { orgId: user.orgId }
-      : {};
+  async listPharmacies(user?: { id?: string; role: string; orgId?: string }) {
+    let where: any = {};
+
+    if (user?.role === 'COMPANY_MANAGER' && user.orgId) {
+      // Get only pharmacies assigned to this manager
+      const assignments = await this.prisma.managerPharmacy.findMany({
+        where: { userId: user.id },
+        select: { pharmacyId: true },
+      });
+      const assignedIds = assignments.map((a) => a.pharmacyId);
+
+      if (assignedIds.length > 0) {
+        where = { id: { in: assignedIds }, orgId: user.orgId };
+      } else {
+        // No assignments = no pharmacies visible
+        where = { id: 'none' };
+      }
+    }
 
     return this.prisma.pharmacy.findMany({
       where,
@@ -99,6 +118,8 @@ export class AdminService {
         phone: dto.phone,
         website: dto.website,
         timezone: dto.timezone ?? 'America/New_York',
+        ...(dto.submissionDueDay !== undefined && { submissionDueDay: dto.submissionDueDay }),
+        ...(dto.processingDueDay !== undefined && { processingDueDay: dto.processingDueDay }),
       },
       include: {
         org: { select: { id: true, name: true } },
@@ -133,6 +154,8 @@ export class AdminService {
         ...(dto.phone !== undefined && { phone: dto.phone }),
         ...(dto.website !== undefined && { website: dto.website }),
         ...(dto.timezone !== undefined && { timezone: dto.timezone }),
+        ...(dto.submissionDueDay !== undefined && { submissionDueDay: dto.submissionDueDay }),
+        ...(dto.processingDueDay !== undefined && { processingDueDay: dto.processingDueDay }),
       },
       include: {
         org: { select: { id: true, name: true } },
@@ -211,7 +234,7 @@ export class AdminService {
         createdAt: true,
         updatedAt: true,
         org: { select: { id: true, name: true } },
-        _count: { select: { pharmacyMemberships: true } },
+        _count: { select: { pharmacyMemberships: true, managedPharmacies: true } },
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -331,16 +354,23 @@ export class AdminService {
     return updated;
   }
 
-  async resetPassword(userId: string, actorUserId: string) {
+  async resetPassword(userId: string, actorUserId: string, newPassword?: string) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new NotFoundException('User not found');
 
-    const tempPassword = crypto.randomBytes(6).toString('base64url');
+    const tempPassword = newPassword || crypto.randomBytes(6).toString('base64url');
+    if (tempPassword.length < 8) {
+      throw new BadRequestException('Password must be at least 8 characters');
+    }
+
     const passwordHash = await bcrypt.hash(tempPassword, 10);
 
     await this.prisma.user.update({
       where: { id: userId },
-      data: { passwordHash },
+      data: {
+        passwordHash,
+        mustChangePassword: true,
+      },
     });
 
     await this.auditLog.log({
@@ -490,6 +520,94 @@ export class AdminService {
       entityType: 'PharmacyMember',
       entityId: memberId,
       before: { userId: member.userId, pharmacyId, memberRole: member.memberRole },
+    });
+
+    return { success: true };
+  }
+
+  // ===== Manager Pharmacy Assignments =====
+
+  async getManagerPharmacies(managerId: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: managerId } });
+    if (!user) throw new NotFoundException('User not found');
+    if (user.role !== Role.COMPANY_MANAGER) {
+      throw new BadRequestException('User is not a COMPANY_MANAGER');
+    }
+
+    return this.prisma.managerPharmacy.findMany({
+      where: { userId: managerId },
+      include: {
+        pharmacy: {
+          select: { id: true, name: true, code: true, city: true, state: true, isActive: true },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async assignPharmacyToManager(
+    managerId: string,
+    pharmacyId: string,
+    actorUserId: string,
+  ) {
+    const user = await this.prisma.user.findUnique({ where: { id: managerId } });
+    if (!user) throw new NotFoundException('User not found');
+    if (user.role !== Role.COMPANY_MANAGER) {
+      throw new BadRequestException('User is not a COMPANY_MANAGER');
+    }
+
+    const pharmacy = await this.prisma.pharmacy.findUnique({ where: { id: pharmacyId } });
+    if (!pharmacy) throw new NotFoundException('Pharmacy not found');
+
+    // Ensure same org
+    if (user.orgId !== pharmacy.orgId) {
+      throw new BadRequestException('User and pharmacy must belong to the same organization');
+    }
+
+    // Check existing
+    const existing = await this.prisma.managerPharmacy.findUnique({
+      where: { userId_pharmacyId: { userId: managerId, pharmacyId } },
+    });
+    if (existing) throw new ConflictException('Pharmacy already assigned to this manager');
+
+    const assignment = await this.prisma.managerPharmacy.create({
+      data: { userId: managerId, pharmacyId },
+      include: {
+        pharmacy: {
+          select: { id: true, name: true, code: true, city: true, state: true, isActive: true },
+        },
+      },
+    });
+
+    await this.auditLog.log({
+      actorUserId,
+      action: 'manager_pharmacy.assigned',
+      entityType: 'ManagerPharmacy',
+      entityId: assignment.id,
+      after: { userId: managerId, pharmacyId },
+    });
+
+    return assignment;
+  }
+
+  async unassignPharmacyFromManager(
+    managerId: string,
+    pharmacyId: string,
+    actorUserId: string,
+  ) {
+    const assignment = await this.prisma.managerPharmacy.findUnique({
+      where: { userId_pharmacyId: { userId: managerId, pharmacyId } },
+    });
+    if (!assignment) throw new NotFoundException('Assignment not found');
+
+    await this.prisma.managerPharmacy.delete({ where: { id: assignment.id } });
+
+    await this.auditLog.log({
+      actorUserId,
+      action: 'manager_pharmacy.unassigned',
+      entityType: 'ManagerPharmacy',
+      entityId: assignment.id,
+      before: { userId: managerId, pharmacyId },
     });
 
     return { success: true };

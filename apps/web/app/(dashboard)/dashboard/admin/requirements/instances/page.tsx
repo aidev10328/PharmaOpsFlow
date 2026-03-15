@@ -104,13 +104,6 @@ export default function InstancesPage() {
   const [sortConfig, setSortConfig] = useState<SortConfig>({ field: 'submissionDeadline', direction: 'asc' });
   const itemsPerPage = 10;
 
-  // Link invoice modal
-  const [linkingInstance, setLinkingInstance] = useState<Instance | null>(null);
-  const [invoices, setInvoices] = useState<any[]>([]);
-  const [loadingInvoices, setLoadingInvoices] = useState(false);
-  const [selectedInvoiceId, setSelectedInvoiceId] = useState<string>('');
-  const [linking, setLinking] = useState(false);
-
   // Evaluation
   const [evaluating, setEvaluating] = useState(false);
 
@@ -229,49 +222,6 @@ export default function InstancesPage() {
     finally { setEvaluating(false); }
   };
 
-  const openLinkModal = async (instance: Instance) => {
-    setLinkingInstance(instance);
-    setSelectedInvoiceId('');
-    setLoadingInvoices(true);
-    try {
-      // Fetch unlinked invoices for this pharmacy
-      const res = await apiFetch(`/invoices?pharmacyId=${instance.requirement.pharmacy.id}&limit=50`);
-      if (res.ok) {
-        const data = await res.json();
-        setInvoices(data.rows || data || []);
-      }
-    } catch { /* ignore */ }
-    finally { setLoadingInvoices(false); }
-  };
-
-  const handleLink = async () => {
-    if (!linkingInstance || !selectedInvoiceId) return;
-    setLinking(true);
-    setError(null);
-    try {
-      const res = await apiFetch(`/v1/requirements/instances/${linkingInstance.id}/link`, {
-        method: 'POST',
-        body: JSON.stringify({ invoiceId: selectedInvoiceId }),
-      });
-      if (!res.ok) { const d = await res.json(); throw new Error(d.message || 'Failed'); }
-      setSuccess('Invoice linked successfully.');
-      setLinkingInstance(null);
-      fetchInstances();
-    } catch (e: any) { setError(e.message); }
-    finally { setLinking(false); }
-  };
-
-  const handleUnlink = async (instance: Instance) => {
-    if (!confirm('Unlink this invoice from the requirement?')) return;
-    setError(null);
-    try {
-      const res = await apiFetch(`/v1/requirements/instances/${instance.id}/link`, { method: 'DELETE' });
-      if (!res.ok) { const d = await res.json(); throw new Error(d.message || 'Failed'); }
-      setSuccess('Invoice unlinked.');
-      fetchInstances();
-    } catch (e: any) { setError(e.message); }
-  };
-
   if (loading || loadingData) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -289,7 +239,7 @@ export default function InstancesPage() {
   if (!user || !['ADMIN', 'COMPANY_MANAGER'].includes(user.role)) return null;
 
   return (
-    <div className="max-w-6xl mx-auto space-y-3">
+    <div className="space-y-3">
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div>
@@ -344,14 +294,13 @@ export default function InstancesPage() {
                 <SortableHeader label="Deadlines" field="submissionDeadline" sortConfig={sortConfig} onSort={handleSort} className="text-left hidden md:table-cell" />
                 <SortableHeader label="Status" field="status" sortConfig={sortConfig} onSort={handleSort} className="text-left" />
                 <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase">Invoice</th>
-                <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase">Actions</th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-100">
               {sortedAndPaginatedData.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-3 py-6 text-center text-gray-400">
-                    No instances found. Generate instances from the Requirements page.
+                  <td colSpan={6} className="px-3 py-6 text-center text-gray-400">
+                    No instances found. Create requirements to auto-generate instances.
                   </td>
                 </tr>
               ) : sortedAndPaginatedData.map((i) => (
@@ -381,15 +330,6 @@ export default function InstancesPage() {
                     ) : (
                       <span className="text-[10px] text-gray-400">Not linked</span>
                     )}
-                  </td>
-                  <td className="px-3 py-2">
-                    <div className="flex items-center gap-1">
-                      {i.invoice ? (
-                        <button onClick={() => handleUnlink(i)} className="text-[10px] px-1.5 py-0.5 rounded font-medium text-red-600 hover:bg-red-50">Unlink</button>
-                      ) : (
-                        <button onClick={() => openLinkModal(i)} className="text-[10px] px-1.5 py-0.5 rounded font-medium text-primary-600 hover:bg-primary-50">Link</button>
-                      )}
-                    </div>
                   </td>
                 </tr>
               ))}
@@ -426,44 +366,6 @@ export default function InstancesPage() {
         )}
       </div>
 
-      {/* Link Invoice Modal */}
-      {linkingInstance && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4 p-4">
-            <h3 className="text-sm font-semibold text-gray-900 mb-2">Link Invoice to Requirement</h3>
-            <p className="text-xs text-gray-600 mb-3">
-              <strong>{linkingInstance.requirement.name}</strong> - {linkingInstance.periodLabel}
-            </p>
-
-            {loadingInvoices ? (
-              <div className="py-6 text-center text-gray-400 text-xs">Loading invoices...</div>
-            ) : invoices.length === 0 ? (
-              <div className="py-6 text-center text-gray-400 text-xs">No invoices available for this pharmacy.</div>
-            ) : (
-              <div className="space-y-1.5 max-h-56 overflow-y-auto">
-                {invoices.map((inv: any) => (
-                  <label key={inv.id} className={`flex items-center gap-2 p-2 border rounded cursor-pointer hover:bg-gray-50 ${selectedInvoiceId === inv.id ? 'border-primary-500 bg-primary-50' : 'border-gray-200'}`}>
-                    <input type="radio" name="invoice" value={inv.id} checked={selectedInvoiceId === inv.id} onChange={e => setSelectedInvoiceId(e.target.value)} className="text-primary-600" />
-                    <div className="flex-1">
-                      <div className="font-medium text-xs">{inv.invoiceNumber || 'No Number'}</div>
-                      <div className="text-[10px] text-gray-500">
-                        {inv.vendor?.name || 'No vendor'} &middot; {inv.status} &middot; {inv.amount ? `$${Number(inv.amount).toFixed(2)}` : 'No amount'}
-                      </div>
-                    </div>
-                  </label>
-                ))}
-              </div>
-            )}
-
-            <div className="flex justify-end gap-2 mt-4">
-              <button onClick={() => setLinkingInstance(null)} className="text-xs px-3 py-1.5 rounded bg-gray-100 text-gray-600 font-medium hover:bg-gray-200">Cancel</button>
-              <button onClick={handleLink} disabled={!selectedInvoiceId || linking} className="btn-accent text-xs px-3 py-1.5">
-                {linking ? 'Linking...' : 'Link Invoice'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

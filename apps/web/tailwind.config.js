@@ -34,7 +34,7 @@ module.exports = {
           900: '#064E3B',
         },
         surface: '#FFFFFF',
-        background: '#F8FAFC',
+        background: '#F1F5F9',
       },
       fontFamily: {
         sans: ['Inter', 'system-ui', 'sans-serif'],

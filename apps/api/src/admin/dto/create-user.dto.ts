@@ -3,7 +3,6 @@ import {
   IsEmail,
   IsOptional,
   IsEnum,
-  IsUUID,
   MinLength,
   MaxLength,
 } from 'class-validator';
@@ -37,6 +36,6 @@ export class CreateUserDto {
   role: Role;
 
   @IsOptional()
-  @IsUUID()
+  @IsString()
   orgId?: string;
 }

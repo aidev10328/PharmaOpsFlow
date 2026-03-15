@@ -22,10 +22,15 @@ export class PharmacyService {
       });
     }
 
-    // COMPANY_MANAGER can see all pharmacies in their org
+    // COMPANY_MANAGER can see only assigned pharmacies in their org
     if (userRole === Role.COMPANY_MANAGER && userOrgId) {
+      const assignments = await this.prisma.managerPharmacy.findMany({
+        where: { userId },
+        select: { pharmacyId: true },
+      });
+      const assignedIds = assignments.map((a) => a.pharmacyId);
       return this.prisma.pharmacy.findMany({
-        where: { orgId: userOrgId },
+        where: { id: { in: assignedIds }, orgId: userOrgId },
         include: {
           org: { select: { id: true, name: true } },
           members: { select: { user: { select: { email: true } } } },
@@ -106,9 +111,12 @@ export class PharmacyService {
       return { hasAccess: false };
     }
 
-    // COMPANY_MANAGER has access to all pharmacies in their org
+    // COMPANY_MANAGER has access to assigned pharmacies in their org
     if (userRole === Role.COMPANY_MANAGER && userOrgId === pharmacy.orgId) {
-      return { hasAccess: true };
+      const assignment = await this.prisma.managerPharmacy.findUnique({
+        where: { userId_pharmacyId: { userId, pharmacyId } },
+      });
+      return { hasAccess: !!assignment };
     }
 
     // Check membership for other roles

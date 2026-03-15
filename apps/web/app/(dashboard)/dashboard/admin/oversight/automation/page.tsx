@@ -65,7 +65,7 @@ export default function AutomationHealthPage() {
   const rateColor = (stats?.successRate || 0) >= 90 ? 'text-emerald-600' : (stats?.successRate || 0) >= 70 ? 'text-amber-600' : 'text-red-600';
 
   return (
-    <div className="max-w-6xl mx-auto space-y-3">
+    <div className="space-y-3">
       <div>
         <h1 className="text-lg font-heading font-bold text-gray-900">Automation & AI Health</h1>
         <p className="text-xs text-gray-500">Invoice extraction performance and failure monitoring</p>

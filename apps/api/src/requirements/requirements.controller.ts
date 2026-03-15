@@ -110,11 +110,10 @@ export class RequirementsController {
     @Request() req: any,
   ) {
     // Check pharmacy access for non-admin users
-    if (!['ADMIN', 'COMPANY_MANAGER'].includes(req.user.role)) {
-      const hasAccess = await this.requirementsService.verifyPharmacyAccess(
-        pharmacyId,
-        req.user.id,
-      );
+    if (req.user.role !== 'ADMIN') {
+      const hasAccess = req.user.role === 'COMPANY_MANAGER'
+        ? await this.requirementsService.verifyManagerAssignment(pharmacyId, req.user.id)
+        : await this.requirementsService.verifyPharmacyAccess(pharmacyId, req.user.id);
       if (!hasAccess) {
         throw new ForbiddenException('You do not have access to this pharmacy');
       }
@@ -129,11 +128,10 @@ export class RequirementsController {
     @Request() req: any,
   ) {
     // Check pharmacy access for non-admin users
-    if (!['ADMIN', 'COMPANY_MANAGER'].includes(req.user.role)) {
-      const hasAccess = await this.requirementsService.verifyPharmacyAccess(
-        pharmacyId,
-        req.user.id,
-      );
+    if (req.user.role !== 'ADMIN') {
+      const hasAccess = req.user.role === 'COMPANY_MANAGER'
+        ? await this.requirementsService.verifyManagerAssignment(pharmacyId, req.user.id)
+        : await this.requirementsService.verifyPharmacyAccess(pharmacyId, req.user.id);
       if (!hasAccess) {
         throw new ForbiddenException('You do not have access to this pharmacy');
       }

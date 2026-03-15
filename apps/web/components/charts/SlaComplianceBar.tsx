@@ -1,6 +1,6 @@
 'use client';
 
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, LabelList } from 'recharts';
 
 type PharmacyCompliance = {
   pharmacyName: string;
@@ -35,7 +35,7 @@ export default function SlaComplianceBar({ pharmacies }: Props) {
 
   return (
     <ResponsiveContainer width="100%" height={280}>
-      <BarChart data={data} layout="vertical" margin={{ top: 5, right: 30, left: 10, bottom: 5 }}>
+      <BarChart data={data} layout="vertical" margin={{ top: 5, right: 40, left: 10, bottom: 5 }}>
         <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
         <XAxis
           type="number"
@@ -65,6 +65,12 @@ export default function SlaComplianceBar({ pharmacies }: Props) {
           {data.map((entry, index) => (
             <Cell key={`cell-${index}`} fill={getBarColor(entry.compliance)} />
           ))}
+          <LabelList
+            dataKey="compliance"
+            position="right"
+            formatter={(value: number) => `${value}%`}
+            style={{ fontSize: 11, fontWeight: 600, fill: '#374151' }}
+          />
         </Bar>
       </BarChart>
     </ResponsiveContainer>

@@ -6,7 +6,7 @@ import { useEffect, useState, useCallback, useMemo } from 'react';
 import { apiFetch } from '../../../../../lib/api';
 import Link from 'next/link';
 
-type Pharmacy = { id: string; name: string; code: string };
+type Pharmacy = { id: string; name: string; code: string; submissionDueDay?: number | null; processingDueDay?: number | null };
 type Vendor = { id: string; name: string };
 type InvoiceType = { id: string; name: string };
 
@@ -20,7 +20,7 @@ type Requirement = {
   invoiceType: InvoiceType | null;
   name: string;
   description: string | null;
-  frequency: 'WEEKLY' | 'MONTHLY' | 'QUARTERLY' | 'ANNUALLY';
+  frequency: 'WEEKLY' | 'BI_WEEKLY' | 'MONTHLY' | 'QUARTERLY' | 'ANNUALLY' | 'ONE_TIME';
   submissionDueDay: number;
   processingDueDay: number;
   applicableMonths: string | null;
@@ -34,18 +34,15 @@ type SortConfig = {
 };
 
 const frequencyOptions = [
-  { value: 'MONTHLY', label: 'Monthly' },
   { value: 'WEEKLY', label: 'Weekly' },
+  { value: 'BI_WEEKLY', label: 'Bi-Weekly' },
+  { value: 'MONTHLY', label: 'Monthly' },
   { value: 'QUARTERLY', label: 'Quarterly' },
   { value: 'ANNUALLY', label: 'Annually' },
+  { value: 'ONE_TIME', label: 'One-Time' },
 ];
 
 const frequencyLabel = (f: string) => frequencyOptions.find(o => o.value === f)?.label || f;
-
-const currentMonth = () => {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-};
 
 function SortableHeader({
   label,
@@ -97,7 +94,7 @@ export default function RequirementsPage() {
   const [sortConfig, setSortConfig] = useState<SortConfig>({ field: 'pharmacy', direction: 'asc' });
   const itemsPerPage = 10;
 
-  type FrequencyType = 'WEEKLY' | 'MONTHLY' | 'QUARTERLY' | 'ANNUALLY';
+  type FrequencyType = 'WEEKLY' | 'BI_WEEKLY' | 'MONTHLY' | 'QUARTERLY' | 'ANNUALLY' | 'ONE_TIME';
 
   // Create form
   const [showCreate, setShowCreate] = useState(false);
@@ -124,6 +121,17 @@ export default function RequirementsPage() {
     applicableMonths: '',
   });
 
+  // Pre-fill due days from pharmacy defaults when pharmacy selection changes
+  const handlePharmacyChange = (pharmacyId: string) => {
+    const pharm = pharmacies.find(p => p.id === pharmacyId);
+    setCreateForm(f => ({
+      ...f,
+      pharmacyId,
+      submissionDueDay: pharm?.submissionDueDay ?? 5,
+      processingDueDay: pharm?.processingDueDay ?? 10,
+    }));
+  };
+
   // Edit state
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<{
@@ -147,17 +155,6 @@ export default function RequirementsPage() {
   });
   const [saving, setSaving] = useState(false);
 
-  // Generate instances
-  const [showGenerate, setShowGenerate] = useState(false);
-  const [generating, setGenerating] = useState(false);
-  const [generateForm, setGenerateForm] = useState({
-    startMonth: currentMonth(),
-    endMonth: currentMonth(),
-    pharmacyId: '',
-  });
-
-  // Auto-link invoices
-  const [autoLinking, setAutoLinking] = useState(false);
 
   useEffect(() => {
     if (!loading && !user) { router.push('/login'); return; }
@@ -398,40 +395,6 @@ export default function RequirementsPage() {
     } catch (e: any) { setError(e.message); }
   };
 
-  const handleGenerate = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setGenerating(true);
-    setError(null);
-    setSuccess(null);
-    try {
-      const res = await apiFetch('/v1/requirements/instances/generate', {
-        method: 'POST',
-        body: JSON.stringify({
-          startMonth: generateForm.startMonth,
-          endMonth: generateForm.endMonth || undefined,
-          pharmacyId: generateForm.pharmacyId || undefined,
-        }),
-      });
-      if (!res.ok) { const d = await res.json(); throw new Error(d.message || 'Failed to generate'); }
-      const result = await res.json();
-      setSuccess(`Generated ${result.created} instances (${result.skipped} skipped).`);
-      setShowGenerate(false);
-    } catch (e: any) { setError(e.message); }
-    finally { setGenerating(false); }
-  };
-
-  const handleAutoLink = async () => {
-    setAutoLinking(true);
-    setError(null);
-    setSuccess(null);
-    try {
-      const res = await apiFetch('/v1/requirements/auto-link-invoices', { method: 'POST' });
-      if (!res.ok) { const d = await res.json(); throw new Error(d.message || 'Failed to auto-link'); }
-      const result = await res.json();
-      setSuccess(`Auto-linked ${result.linked} invoices to requirement instances (${result.skipped} skipped).`);
-    } catch (e: any) { setError(e.message); }
-    finally { setAutoLinking(false); }
-  };
 
   if (loading || loadingData) {
     return (
@@ -450,7 +413,7 @@ export default function RequirementsPage() {
   if (!user || !['ADMIN', 'COMPANY_MANAGER'].includes(user.role)) return null;
 
   return (
-    <div className="max-w-6xl mx-auto space-y-3">
+    <div className="space-y-3">
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div>
@@ -460,13 +423,7 @@ export default function RequirementsPage() {
         <div className="flex flex-wrap items-center gap-1.5">
           <Link href="/dashboard/admin/requirements/instances" className="text-xs px-3 py-1.5 rounded-md border border-gray-200 bg-white text-gray-700 font-medium hover:bg-gray-50 hover:border-gray-300 transition-colors shadow-sm">Instances</Link>
           <Link href="/dashboard/admin/requirements/compliance" className="text-xs px-3 py-1.5 rounded-md border border-gray-200 bg-white text-gray-700 font-medium hover:bg-gray-50 hover:border-gray-300 transition-colors shadow-sm">Compliance</Link>
-          <button onClick={handleAutoLink} disabled={autoLinking} className="text-xs px-3 py-1.5 rounded-md border border-gray-200 bg-white text-gray-700 font-medium hover:bg-gray-50 hover:border-gray-300 transition-colors shadow-sm disabled:opacity-50">
-            {autoLinking ? '...' : 'Auto-Link'}
-          </button>
-          <button onClick={() => { setShowGenerate(!showGenerate); setShowCreate(false); setError(null); setSuccess(null); }} className="text-xs px-3 py-1.5 rounded-md border border-gray-200 bg-white text-gray-700 font-medium hover:bg-gray-50 hover:border-gray-300 transition-colors shadow-sm">
-            {showGenerate ? 'Cancel' : 'Generate'}
-          </button>
-          <button onClick={() => { setShowCreate(!showCreate); setShowGenerate(false); setError(null); setSuccess(null); }} className="btn-primary text-xs px-3 py-1.5 shadow-sm">
+          <button onClick={() => { setShowCreate(!showCreate); setError(null); setSuccess(null); }} className="btn-primary text-xs px-3 py-1.5 shadow-sm">
             {showCreate ? 'Cancel' : '+ Add'}
           </button>
         </div>
@@ -494,33 +451,6 @@ export default function RequirementsPage() {
         </div>
       </div>
 
-      {/* Generate Instances Form */}
-      {showGenerate && (
-        <div className="card p-3">
-          <h3 className="text-xs font-semibold text-gray-900 mb-2">Generate Instances</h3>
-          <form onSubmit={handleGenerate} className="grid grid-cols-2 md:grid-cols-4 gap-2">
-            <div>
-              <label className="block text-[10px] font-medium text-gray-700 mb-0.5">Start Month *</label>
-              <input type="month" value={generateForm.startMonth} onChange={e => setGenerateForm(f => ({ ...f, startMonth: e.target.value }))} className="input-field text-xs py-1.5" required />
-            </div>
-            <div>
-              <label className="block text-[10px] font-medium text-gray-700 mb-0.5">End Month</label>
-              <input type="month" value={generateForm.endMonth} onChange={e => setGenerateForm(f => ({ ...f, endMonth: e.target.value }))} className="input-field text-xs py-1.5" />
-            </div>
-            <div>
-              <label className="block text-[10px] font-medium text-gray-700 mb-0.5">Pharmacy</label>
-              <select value={generateForm.pharmacyId} onChange={e => setGenerateForm(f => ({ ...f, pharmacyId: e.target.value }))} className="input-field text-xs py-1.5">
-                <option value="">All</option>
-                {pharmacies.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </select>
-            </div>
-            <div className="flex items-end">
-              <button type="submit" disabled={generating} className="btn-dark text-xs px-3 py-1.5">{generating ? '...' : 'Generate'}</button>
-            </div>
-          </form>
-        </div>
-      )}
-
       {/* Create Form */}
       {showCreate && (
         <div className="card p-3">
@@ -528,7 +458,7 @@ export default function RequirementsPage() {
           <form onSubmit={handleCreate} className="grid grid-cols-2 md:grid-cols-4 gap-2">
             <div>
               <label className="block text-[10px] font-medium text-gray-700 mb-0.5">Pharmacy *</label>
-              <select value={createForm.pharmacyId} onChange={e => setCreateForm(f => ({ ...f, pharmacyId: e.target.value }))} className="input-field text-xs py-1.5" required>
+              <select value={createForm.pharmacyId} onChange={e => handlePharmacyChange(e.target.value)} className="input-field text-xs py-1.5" required>
                 <option value="">Select...</option>
                 <option value="ALL">All ({pharmacies.length})</option>
                 {pharmacies.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}

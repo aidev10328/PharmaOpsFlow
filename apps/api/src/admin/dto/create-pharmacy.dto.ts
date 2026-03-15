@@ -2,6 +2,9 @@ import {
   IsString,
   IsOptional,
   IsUUID,
+  IsInt,
+  Min,
+  Max,
   MaxLength,
 } from 'class-validator';
 
@@ -51,4 +54,16 @@ export class CreatePharmacyDto {
   @IsString()
   @MaxLength(100)
   timezone?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(28)
+  submissionDueDay?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(28)
+  processingDueDay?: number;
 }

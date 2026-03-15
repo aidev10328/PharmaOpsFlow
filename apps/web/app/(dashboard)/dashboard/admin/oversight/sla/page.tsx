@@ -66,7 +66,9 @@ export default function SlaOversightPage() {
   const [pharmacyFilter, setPharmacyFilter] = useState('');
   const [eventTypeFilter, setEventTypeFilter] = useState('');
   const [loadingData, setLoadingData] = useState(true);
+  const [runningEval, setRunningEval] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [evalResult, setEvalResult] = useState<string | null>(null);
 
   // Sorting state for pharmacy compliance table
   const [pharmacySort, setPharmacySort] = useState<SortConfig>({ field: 'pharmacyName', direction: 'asc' });
@@ -177,6 +179,27 @@ export default function SlaOversightPage() {
     return data;
   }, [slaEvents, eventsSort]);
 
+  const runEvaluation = async () => {
+    setRunningEval(true);
+    setError(null);
+    setEvalResult(null);
+    try {
+      const res = await apiFetch(`/v1/sla/run?yearMonth=${monthFilter}`, {
+        method: 'POST',
+      });
+      if (res.ok) {
+        const result = await res.json();
+        setEvalResult(`Evaluated ${result.pharmaciesEvaluated} pharmacies: ${result.submissionViolations} submission violations, ${result.processingViolations} processing violations`);
+        // Refresh data
+        await Promise.all([fetchSummary(), fetchEvents(1)]);
+      } else {
+        const data = await res.json();
+        setError(data.message || 'Evaluation failed');
+      }
+    } catch { setError('Failed to run evaluation'); }
+    finally { setRunningEval(false); }
+  };
+
   if (loading || loadingData) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -196,26 +219,34 @@ export default function SlaOversightPage() {
   const totals = summary?.totals || {};
 
   return (
-    <div className="max-w-6xl mx-auto space-y-3">
+    <div className="space-y-3">
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div>
           <h1 className="text-lg font-heading font-bold text-gray-900">SLA & Compliance Oversight</h1>
           <p className="text-xs text-gray-500">Monthly submission and processing compliance tracking</p>
         </div>
-        <div className="flex items-center gap-1.5">
-          <Link href="/dashboard/admin/requirements/compliance" className="text-xs px-3 py-1.5 rounded-md border border-gray-200 bg-white text-gray-700 font-medium hover:bg-gray-50 hover:border-gray-300 transition-colors shadow-sm">
+        <div className="flex items-center gap-2">
+          <button
+            onClick={runEvaluation}
+            disabled={runningEval}
+            className="text-xs px-3 h-8 rounded-md bg-primary-600 text-white font-medium hover:bg-primary-700 disabled:opacity-50 transition-colors shadow-sm inline-flex items-center"
+          >
+            {runningEval ? 'Running...' : 'Run Evaluation'}
+          </button>
+          <Link href="/dashboard/admin/requirements/compliance" className="text-xs px-3 h-8 rounded-md border border-gray-200 bg-white text-gray-700 font-medium hover:bg-gray-50 hover:border-gray-300 transition-colors shadow-sm inline-flex items-center">
             Requirements
           </Link>
           <input
             type="month"
             value={monthFilter}
             onChange={e => setMonthFilter(e.target.value)}
-            className="input-field text-xs py-1.5 w-36"
+            className="input-field text-xs h-8 px-2 w-36"
           />
         </div>
       </div>
 
       {error && <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded text-xs">{error}</div>}
+      {evalResult && <div className="bg-green-50 border border-green-200 text-green-700 px-3 py-2 rounded text-xs">{evalResult}</div>}
 
       {/* Summary Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2">

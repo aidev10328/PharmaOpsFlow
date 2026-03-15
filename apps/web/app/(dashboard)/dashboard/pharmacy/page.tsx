@@ -34,6 +34,13 @@ type RequirementsSummary = {
   totalThisMonth: number;
 };
 
+type RequirementInstance = {
+  id: string;
+  invoiceId: string | null;
+  status: string;
+  submissionDeadline: string;
+};
+
 function formatAddress(p: Pharmacy): string {
   const parts = [p.street, [p.city, p.state].filter(Boolean).join(', '), p.zip].filter(Boolean);
   return parts.join(', ') || 'Not specified';
@@ -78,48 +85,46 @@ export default function PharmacyDashboard() {
     }
   }, [user]);
 
-  // Fetch invoice stats when selected pharmacy changes
-  // Fetches all invoices by paginating through results (API max limit is 100)
+  // Fetch invoice stats for current month
   const fetchInvoiceStats = useCallback(async (pharmacyId: string) => {
     setLoadingStats(true);
     try {
-      const allInvoices: any[] = [];
-      let page = 1;
-      let hasMore = true;
+      const currentMonth = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`;
 
-      // Paginate through all invoices
-      while (hasMore) {
-        const res = await apiFetch(`/invoices?pharmacyId=${pharmacyId}&limit=100&page=${page}`);
+      // Fetch both invoice stats and requirement instances in parallel
+      const [statsRes, instancesRes] = await Promise.all([
+        apiFetch(`/invoices/stats?pharmacyId=${pharmacyId}&month=${currentMonth}`),
+        apiFetch(`/v1/requirements/pharmacy/${pharmacyId}/instances?yearMonth=${currentMonth}`),
+      ]);
 
-        if (!res.ok) {
-          console.error('fetchInvoiceStats: API error:', res.status);
-          break;
-        }
-
-        const data = await res.json();
-        const invoices = data.data || [];
-        allInvoices.push(...invoices);
-
-        // Check if there are more pages
-        const pagination = data.pagination;
-        if (pagination && page < pagination.totalPages) {
-          page++;
-        } else {
-          hasMore = false;
-        }
+      if (!statsRes.ok) {
+        console.error('fetchInvoiceStats: API error:', statsRes.status);
+        setInvoiceStats({ totalCount: 0, totalAmount: 0, statusCounts: {} });
+        return;
       }
 
-      const statusCounts: Record<string, number> = {};
-      let totalAmount = 0;
+      const data = await statsRes.json();
+      const statusCounts = data.statusCounts || {};
+      const draftCount = statusCounts.DRAFT || 0;
+      const managerView = user?.role === 'COMPANY_MANAGER' || user?.role === 'ADMIN';
+      const invoiceTotal = Object.values(statusCounts).reduce((a: number, b: any) => a + (b || 0), 0) as number - (managerView ? draftCount : 0);
 
-      allInvoices.forEach((inv: any) => {
-        statusCounts[inv.status] = (statusCounts[inv.status] || 0) + 1;
-        totalAmount += parseFloat(inv.amount) || 0;
-      });
+      // Compute pending/overdue from requirement instances (same logic as invoice list)
+      let pendingCount = 0;
+      let overdueCount = 0;
+      if (instancesRes.ok) {
+        const instances: RequirementInstance[] = await instancesRes.json();
+        const now = new Date();
+        const unfilled = instances.filter((i) => !i.invoiceId && ['PENDING', 'OVERDUE'].includes(i.status));
+        pendingCount = unfilled.filter((i) => new Date(i.submissionDeadline) >= now).length;
+        overdueCount = unfilled.filter((i) => new Date(i.submissionDeadline) < now).length;
+      }
+
+      setRequirementsSummary((prev) => prev ? { ...prev, pending: pendingCount, overdue: overdueCount } : { pending: pendingCount, overdue: overdueCount, submitted: 0, processed: 0, totalThisMonth: 0 });
 
       setInvoiceStats({
-        totalCount: allInvoices.length,
-        totalAmount,
+        totalCount: pendingCount + overdueCount + invoiceTotal,
+        totalAmount: data.totalAmount || 0,
         statusCounts,
       });
     } catch (e) {
@@ -130,26 +135,11 @@ export default function PharmacyDashboard() {
     }
   }, []);
 
-  // Fetch requirements summary when selected pharmacy changes
-  const fetchRequirementsSummary = useCallback(async (pharmacyId: string) => {
-    try {
-      const res = await apiFetch(`/v1/requirements/pharmacy/${pharmacyId}/summary`);
-      if (res.ok) {
-        setRequirementsSummary(await res.json());
-      } else {
-        setRequirementsSummary(null);
-      }
-    } catch {
-      setRequirementsSummary(null);
-    }
-  }, []);
-
   useEffect(() => {
     if (selectedPharmacy) {
       fetchInvoiceStats(selectedPharmacy.id);
-      fetchRequirementsSummary(selectedPharmacy.id);
     }
-  }, [selectedPharmacy, fetchInvoiceStats, fetchRequirementsSummary]);
+  }, [selectedPharmacy, fetchInvoiceStats]);
 
   if (loading) {
     return (
@@ -178,6 +168,8 @@ export default function PharmacyDashboard() {
     );
     return membership?.memberRole?.replace('_', ' ') || user.role.replace('_', ' ');
   };
+
+  const isManager = user?.role === 'COMPANY_MANAGER' || user?.role === 'ADMIN';
 
   const getRoleBadgeColor = (role: string): string => {
     if (role.includes('ADMIN')) return 'bg-violet-50 text-violet-700';
@@ -286,21 +278,41 @@ export default function PharmacyDashboard() {
                         </div>
                       </div>
                     )}
-                    <div className="grid grid-cols-3 md:grid-cols-5 lg:grid-cols-9 gap-2">
+                    <div className="grid grid-cols-3 md:grid-cols-5 lg:grid-cols-10 gap-2">
                       <div className="card p-2.5">
                         <div className="text-lg font-bold text-gray-900">{invoiceStats.totalCount}</div>
                         <div className="text-[10px] text-gray-500">Total</div>
                       </div>
-                      <div className={`card p-2.5 ${(requirementsSummary?.pending || 0) > 0 ? 'border-orange-200 bg-orange-50' : ''}`}>
-                        <div className={`text-lg font-bold ${(requirementsSummary?.pending || 0) > 0 ? 'text-orange-600' : 'text-gray-400'}`}>
+                      <div className={`card p-2.5 ${(requirementsSummary?.pending || 0) > 0 ? 'border-yellow-200 bg-yellow-50' : ''}`}>
+                        <div className={`text-lg font-bold ${(requirementsSummary?.pending || 0) > 0 ? 'text-yellow-600' : 'text-gray-400'}`}>
                           {requirementsSummary?.pending || 0}
                         </div>
-                        <div className={`text-[10px] ${(requirementsSummary?.pending || 0) > 0 ? 'text-orange-700' : 'text-gray-500'}`}>Pending</div>
+                        <div className={`text-[10px] ${(requirementsSummary?.pending || 0) > 0 ? 'text-yellow-700' : 'text-gray-500'}`}>Pending</div>
                       </div>
-                      <div className="card p-2.5">
-                        <div className="text-lg font-bold text-amber-600">{invoiceStats.statusCounts.DRAFT || 0}</div>
-                        <div className="text-[10px] text-gray-500">Draft</div>
-                      </div>
+                      <a
+                        href={`/dashboard/pharmacy/invoices?pharmacyId=${selectedPharmacy?.id}`}
+                        className={`card p-2.5 block ${
+                          (requirementsSummary?.overdue || 0) > 0
+                            ? '!border-2 !border-red-400 !bg-red-600 shadow-lg animate-pulse cursor-pointer'
+                            : '!border-2 !border-red-300 !bg-red-50 cursor-pointer'
+                        }`}
+                      >
+                        <div className="flex items-center gap-1">
+                          <svg className={`w-3.5 h-3.5 ${(requirementsSummary?.overdue || 0) > 0 ? 'text-white' : 'text-red-400'}`} fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                          </svg>
+                          <div className={`text-lg font-bold ${(requirementsSummary?.overdue || 0) > 0 ? 'text-white' : 'text-red-600'}`}>
+                            {requirementsSummary?.overdue || 0}
+                          </div>
+                        </div>
+                        <div className={`text-[10px] font-semibold ${(requirementsSummary?.overdue || 0) > 0 ? 'text-red-100' : 'text-red-600'}`}>Overdue</div>
+                      </a>
+                      {!isManager && (
+                        <div className="card p-2.5">
+                          <div className="text-lg font-bold text-amber-600">{invoiceStats.statusCounts.DRAFT || 0}</div>
+                          <div className="text-[10px] text-gray-500">Draft</div>
+                        </div>
+                      )}
                       <div className="card p-2.5">
                         <div className="text-lg font-bold text-blue-600">{invoiceStats.statusCounts.SUBMITTED || 0}</div>
                         <div className="text-[10px] text-gray-500">Submitted</div>

@@ -49,6 +49,7 @@ export class ChatController {
       dto,
       req.user.id,
       req.user.orgId,
+      req.user.role === Role.COMPANY_MANAGER ? req.user.id : undefined,
     );
 
     return {
@@ -71,6 +72,7 @@ export class ChatController {
       dto,
       req.user.id,
       req.user.orgId,
+      req.user.role === Role.COMPANY_MANAGER ? req.user.id : undefined,
     );
 
     return {

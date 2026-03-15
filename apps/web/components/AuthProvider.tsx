@@ -31,6 +31,7 @@ type User = {
   role: Role;
   orgId?: string;
   org?: Org;
+  mustChangePassword?: boolean;
   pharmacyMemberships?: PharmacyMembership[];
 } | null;
 

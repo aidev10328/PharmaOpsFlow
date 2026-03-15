@@ -45,6 +45,13 @@ export interface ExtractOnlyDto {
   userId: string;
 }
 
+export interface ExtractionWarning {
+  type: 'pharmacy_mismatch' | 'date_anomaly' | 'type_mismatch' | 'vendor_unknown' | 'low_confidence' | 'missing_field';
+  severity: 'error' | 'warning' | 'info';
+  field?: string;
+  message: string;
+}
+
 export interface ExtractOnlyResult {
   tempFilePath: string;
   originalName: string;
@@ -56,6 +63,7 @@ export interface ExtractOnlyResult {
   matchedInvoiceTypeId?: string;
   vendors: any[];
   invoiceTypes: any[];
+  warnings?: ExtractionWarning[];
 }
 
 export class ApplyExtractionDto {
@@ -713,7 +721,7 @@ export class ExtractionService {
   /**
    * Get invoices needing review
    */
-  async getInvoicesNeedingReview(pharmacyId?: string, orgId?: string) {
+  async getInvoicesNeedingReview(pharmacyId?: string, orgId?: string, assignedPharmacyIds?: string[]) {
     const where: Prisma.InvoiceWhereInput = {
       needsReview: true,
       extractionStatus: ExtractionStatus.SUCCESS,
@@ -721,6 +729,8 @@ export class ExtractionService {
 
     if (pharmacyId) {
       where.pharmacyId = pharmacyId;
+    } else if (assignedPharmacyIds) {
+      where.pharmacyId = { in: assignedPharmacyIds };
     } else if (orgId) {
       where.pharmacy = { orgId };
     }
@@ -853,6 +863,17 @@ export class ExtractionService {
 
       this.logger.log(`Extract-only completed for temp file ${tempFilePath}`);
 
+      // Generate warnings based on extraction analysis
+      const warnings: ExtractionWarning[] = this.generateExtractionWarnings(
+        result.extracted,
+        result.confidence,
+        pharmacy.name,
+        vendorMatch,
+        typeMatch,
+        vendors,
+        invoiceTypes,
+      );
+
       return {
         tempFilePath,
         originalName: file.originalname,
@@ -864,6 +885,7 @@ export class ExtractionService {
         matchedInvoiceTypeId: typeMatch?.invoiceTypeId,
         vendors,
         invoiceTypes,
+        warnings,
       };
     } catch (error) {
       this.logger.error(`Extract-only failed: ${error.message}`);
@@ -894,6 +916,166 @@ export class ExtractionService {
   }
 
   /**
+   * Generate warnings/observations from extracted data
+   */
+  private generateExtractionWarnings(
+    extracted: ExtractedInvoiceData | null,
+    confidence: ExtractionConfidence | null,
+    pharmacyName: string,
+    vendorMatch: any,
+    typeMatch: any,
+    vendors: any[],
+    invoiceTypes: any[],
+  ): ExtractionWarning[] {
+    const warnings: ExtractionWarning[] = [];
+    if (!extracted) return warnings;
+
+    const now = new Date();
+
+    // 1. Pharmacy mismatch — check if vendor name or payable-to mentions a different pharmacy
+    if (extracted.vendorName) {
+      const vn = extracted.vendorName.toLowerCase();
+      const pn = pharmacyName.toLowerCase();
+      // Check if extracted vendor name contains "pharmacy" and doesn't match the current pharmacy
+      if (vn.includes('pharmacy') && !vn.includes(pn.split(' ')[0]?.toLowerCase())) {
+        warnings.push({
+          type: 'pharmacy_mismatch',
+          severity: 'warning',
+          field: 'vendorName',
+          message: `Extracted vendor "${extracted.vendorName}" appears to be a pharmacy. This invoice is being uploaded to "${pharmacyName}" — please verify it belongs here.`,
+        });
+      }
+    }
+    // Also check payableTo
+    if (extracted.payableTo) {
+      const pt = extracted.payableTo.toLowerCase();
+      const pn = pharmacyName.toLowerCase();
+      if (pt.includes('pharmacy') && !pt.includes(pn.split(' ')[0]?.toLowerCase())) {
+        warnings.push({
+          type: 'pharmacy_mismatch',
+          severity: 'warning',
+          field: 'payableTo',
+          message: `Payment is to "${extracted.payableTo}" which appears to be a different pharmacy than "${pharmacyName}".`,
+        });
+      }
+    }
+
+    // 2. Date anomalies
+    if (extracted.invoiceDate) {
+      const invDate = new Date(extracted.invoiceDate);
+      if (!isNaN(invDate.getTime())) {
+        const diffMonths = (now.getFullYear() - invDate.getFullYear()) * 12 + (now.getMonth() - invDate.getMonth());
+        if (diffMonths > 6) {
+          warnings.push({
+            type: 'date_anomaly',
+            severity: 'warning',
+            field: 'invoiceDate',
+            message: `Invoice date ${extracted.invoiceDate} is ${diffMonths} months in the past. The year might be incorrect — please verify.`,
+          });
+        } else if (diffMonths < -3) {
+          warnings.push({
+            type: 'date_anomaly',
+            severity: 'warning',
+            field: 'invoiceDate',
+            message: `Invoice date ${extracted.invoiceDate} is ${Math.abs(diffMonths)} months in the future. Please verify this is correct.`,
+          });
+        }
+        // Check if year seems wrong (e.g., 2020 when it should be 2026)
+        if (Math.abs(invDate.getFullYear() - now.getFullYear()) >= 2) {
+          warnings.push({
+            type: 'date_anomaly',
+            severity: 'error',
+            field: 'invoiceDate',
+            message: `Invoice date year is ${invDate.getFullYear()} but the current year is ${now.getFullYear()}. This is likely a parsing error — please correct the date.`,
+          });
+        }
+      }
+    }
+    if (extracted.dueDate && extracted.dueDate !== 'DUE_UPON_RECEIPT') {
+      const dueDate = new Date(extracted.dueDate);
+      if (!isNaN(dueDate.getTime())) {
+        const diffMonths = (now.getFullYear() - dueDate.getFullYear()) * 12 + (now.getMonth() - dueDate.getMonth());
+        if (diffMonths > 6) {
+          warnings.push({
+            type: 'date_anomaly',
+            severity: 'warning',
+            field: 'dueDate',
+            message: `Due date ${extracted.dueDate} is ${diffMonths} months in the past. Please verify.`,
+          });
+        }
+        if (Math.abs(dueDate.getFullYear() - now.getFullYear()) >= 2) {
+          warnings.push({
+            type: 'date_anomaly',
+            severity: 'error',
+            field: 'dueDate',
+            message: `Due date year is ${dueDate.getFullYear()} but the current year is ${now.getFullYear()}. This is likely a parsing error.`,
+          });
+        }
+      }
+    }
+
+    // 3. Vendor not recognized
+    if (extracted.vendorName && !vendorMatch?.vendorId) {
+      warnings.push({
+        type: 'vendor_unknown',
+        severity: 'info',
+        field: 'vendorName',
+        message: `Vendor "${extracted.vendorName}" is not in the system. A new vendor will be created when this invoice is saved.`,
+      });
+    }
+
+    // 4. Invoice type detection
+    if (extracted.invoiceType && !typeMatch?.invoiceTypeId) {
+      warnings.push({
+        type: 'type_mismatch',
+        severity: 'info',
+        field: 'invoiceType',
+        message: `Detected invoice type "${extracted.invoiceType}" does not match any existing type in the system. Please select the correct type.`,
+      });
+    }
+
+    // 5. Low confidence warnings
+    if (confidence) {
+      const lowConfidenceFields: { field: string; label: string; value: number }[] = [];
+      if (confidence.vendorName < 0.7) lowConfidenceFields.push({ field: 'vendorName', label: 'Vendor name', value: confidence.vendorName });
+      if (confidence.invoiceNumber < 0.7) lowConfidenceFields.push({ field: 'invoiceNumber', label: 'Invoice number', value: confidence.invoiceNumber });
+      if (confidence.invoiceDate < 0.7) lowConfidenceFields.push({ field: 'invoiceDate', label: 'Invoice date', value: confidence.invoiceDate });
+      if (confidence.dueDate < 0.7) lowConfidenceFields.push({ field: 'dueDate', label: 'Due date', value: confidence.dueDate });
+      if (confidence.amount < 0.7) lowConfidenceFields.push({ field: 'amount', label: 'Amount', value: confidence.amount });
+      if (confidence.invoiceType < 0.5) lowConfidenceFields.push({ field: 'invoiceType', label: 'Invoice type', value: confidence.invoiceType });
+
+      for (const lc of lowConfidenceFields) {
+        warnings.push({
+          type: 'low_confidence',
+          severity: 'warning',
+          field: lc.field,
+          message: `${lc.label} extraction confidence is low (${Math.round(lc.value * 100)}%). Please verify this value.`,
+        });
+      }
+    }
+
+    // 6. Missing required fields
+    const requiredFields: { field: string; label: string; value: any }[] = [
+      { field: 'vendorName', label: 'Vendor name', value: extracted.vendorName },
+      { field: 'invoiceNumber', label: 'Invoice number', value: extracted.invoiceNumber },
+      { field: 'amount', label: 'Amount', value: extracted.amount },
+      { field: 'invoiceDate', label: 'Invoice date', value: extracted.invoiceDate },
+    ];
+    for (const rf of requiredFields) {
+      if (!rf.value) {
+        warnings.push({
+          type: 'missing_field',
+          severity: 'error',
+          field: rf.field,
+          message: `${rf.label} could not be extracted from the document. Please enter it manually.`,
+        });
+      }
+    }
+
+    return warnings;
+  }
+
+  /**
    * Create an invoice from a temporary file (used after extractOnly)
    * Moves the file from temp storage to permanent storage and creates the invoice
    */
@@ -921,27 +1103,66 @@ export class ExtractionService {
   }): Promise<any> {
     const { pharmacyId, tempFilePath, originalName, mimeType, sizeBytes, userId, invoiceData, submit } = params;
 
-    // Create the invoice
-    const invoice = await this.prisma.invoice.create({
-      data: {
-        pharmacyId,
-        status: submit ? 'SUBMITTED' : 'DRAFT',
-        entryMethod: 'AI_EXTRACTION',
-        vendorId: invoiceData.vendorId || undefined,
-        invoiceTypeId: invoiceData.invoiceTypeId || undefined,
-        invoiceNumber: invoiceData.invoiceNumber || undefined,
-        accountNumber: invoiceData.accountNumber || undefined,
-        documentType: invoiceData.documentType || 'INVOICE',
-        invoiceDate: invoiceData.invoiceDate ? new Date(invoiceData.invoiceDate) : undefined,
-        dueDate: invoiceData.dueDate ? new Date(invoiceData.dueDate) : undefined,
-        amount: invoiceData.amount || undefined,
-        currency: invoiceData.currency || 'USD',
-        description: invoiceData.description || undefined,
-        notes: invoiceData.notes || undefined,
-      },
-    });
+    // Check for duplicate invoice (same vendor + pharmacy + invoice number)
+    // If existing is a DRAFT, update it instead of failing
+    let invoice: any;
+    let isUpdate = false;
 
-    this.logger.log(`Created invoice ${invoice.id} from temp file`);
+    if (invoiceData.vendorId && invoiceData.invoiceNumber) {
+      const existing = await this.prisma.invoice.findFirst({
+        where: {
+          pharmacyId,
+          vendorId: invoiceData.vendorId,
+          invoiceNumber: { equals: invoiceData.invoiceNumber, mode: 'insensitive' },
+        },
+      });
+      if (existing) {
+        if (existing.status === 'DRAFT') {
+          // Update existing draft instead of creating a new one
+          invoice = await this.prisma.invoice.update({
+            where: { id: existing.id },
+            data: {
+              status: submit ? 'SUBMITTED' : 'DRAFT',
+              invoiceTypeId: invoiceData.invoiceTypeId || existing.invoiceTypeId,
+              invoiceDate: invoiceData.invoiceDate ? new Date(invoiceData.invoiceDate) : existing.invoiceDate,
+              dueDate: invoiceData.dueDate ? new Date(invoiceData.dueDate) : existing.dueDate,
+              amount: invoiceData.amount || existing.amount,
+              description: invoiceData.description || existing.description,
+              notes: invoiceData.notes || existing.notes,
+            },
+          });
+          isUpdate = true;
+          this.logger.log(`Updated existing draft invoice ${invoice.id} from temp file`);
+        } else {
+          throw new BadRequestException(
+            `Invoice "${invoiceData.invoiceNumber}" from this vendor already exists and is not in draft status`,
+          );
+        }
+      }
+    }
+
+    if (!invoice) {
+      // Create new invoice
+      invoice = await this.prisma.invoice.create({
+        data: {
+          pharmacyId,
+          status: submit ? 'SUBMITTED' : 'DRAFT',
+          entryMethod: 'AI_EXTRACTION',
+          vendorId: invoiceData.vendorId || undefined,
+          invoiceTypeId: invoiceData.invoiceTypeId || undefined,
+          invoiceNumber: invoiceData.invoiceNumber || undefined,
+          accountNumber: invoiceData.accountNumber || undefined,
+          documentType: invoiceData.documentType || 'INVOICE',
+          invoiceDate: invoiceData.invoiceDate ? new Date(invoiceData.invoiceDate) : undefined,
+          dueDate: invoiceData.dueDate ? new Date(invoiceData.dueDate) : undefined,
+          amount: invoiceData.amount || undefined,
+          currency: invoiceData.currency || 'USD',
+          description: invoiceData.description || undefined,
+          notes: invoiceData.notes || undefined,
+        },
+      });
+      this.logger.log(`Created invoice ${invoice.id} from temp file`);
+    }
 
     // Move the file from temp storage to permanent storage
     const permanentPath = `invoices/${invoice.id}/${Date.now()}-${originalName}`;
@@ -985,9 +1206,11 @@ export class ExtractionService {
     await this.prisma.invoiceEvent.create({
       data: {
         invoiceId: invoice.id,
-        eventType: InvoiceEventType.CREATED,
+        eventType: isUpdate ? InvoiceEventType.UPDATED : InvoiceEventType.CREATED,
         userId,
-        notes: submit ? 'Invoice created and submitted' : 'Invoice created as draft',
+        notes: isUpdate
+          ? `Draft invoice updated${submit ? ' and submitted' : ''} with new file`
+          : (submit ? 'Invoice created and submitted' : 'Invoice created as draft'),
         metadata: { fileName: originalName },
       },
     });

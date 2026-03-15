@@ -90,9 +90,14 @@ enum AIProvider {
 model Org {
   id                 String     @id @default(uuid())
   name               String
+  phone              String?
+  email              String?
+  website            String?
+  street             String?
+  city               String?
+  state              String?
+  zip                String?
   timezone           String     @default("America/Chicago")
-  submissionDueDay   Int        @default(5)
-  processingDueDay   Int        @default(10)
   createdAt          DateTime   @default(now())
   updatedAt          DateTime   @updatedAt
 
@@ -101,6 +106,8 @@ model Org {
   invoiceTypes         InvoiceType[]
   vendors              Vendor[]
   requiredInvoiceTypes RequiredInvoiceType[]
+  frequencies          Frequency[]
+  invoiceCategories    InvoiceCategory[]
 }
 
 model Pharmacy {
@@ -114,14 +121,17 @@ model Pharmacy {
   zip       String?  // US zip code
   phone     String?
   website   String?
-  timezone  String?  @default("America/New_York")
-  isActive  Boolean  @default(true)
+  timezone          String?  @default("America/New_York")
+  submissionDueDay  Int?     // Pharmacy-level override (null = use org default)
+  processingDueDay  Int?     // Pharmacy-level override (null = use org default)
+  isActive          Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  org      Org              @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  members  PharmacyMember[]
-  invoices Invoice[]
+  org              Org              @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  members          PharmacyMember[]
+  managerAssignments ManagerPharmacy[]
+  invoices         Invoice[]
   vendors              Vendor[]
   requiredInvoiceTypes RequiredInvoiceType[]
   monthlyRequirements MonthlyInvoiceRequirement[]
@@ -148,29 +158,48 @@ model PharmacyMember {
   @@index([pharmacyId])
 }
 
+// Manager-to-Pharmacy assignment (COMPANY_MANAGER can only manage assigned pharmacies)
+model ManagerPharmacy {
+  id         String   @id @default(uuid())
+  userId     String
+  pharmacyId String
+  createdAt  DateTime @default(now())
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  pharmacy Pharmacy @relation(fields: [pharmacyId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, pharmacyId])
+  @@index([userId])
+  @@index([pharmacyId])
+}
+
 // ============================================
 // User Model
 // ============================================
 
 model User {
-  id           String   @id @default(uuid())
-  email        String   @unique
-  passwordHash String
-  firstName    String?
-  lastName     String?
-  phone        String?
-  role         Role     @default(PHARMACY_USER)
-  orgId        String?  // Users belong to an org (except ADMIN)
-  isActive     Boolean  @default(true)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id                    String    @id @default(uuid())
+  email                 String    @unique
+  passwordHash          String
+  firstName             String?
+  lastName              String?
+  phone                 String?
+  role                  Role      @default(PHARMACY_USER)
+  orgId                 String?   // Users belong to an org (except ADMIN)
+  isActive              Boolean   @default(true)
+  mustChangePassword    Boolean   @default(false)
+  passwordResetToken    String?   @unique
+  passwordResetExpires  DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
 
-  org                Org?              @relation(fields: [orgId], references: [id], onDelete: SetNull)
+  org                 Org?              @relation(fields: [orgId], references: [id], onDelete: SetNull)
   pharmacyMemberships PharmacyMember[]
-  invoiceEvents      InvoiceEvent[]
-  uploadedFiles      InvoiceFile[]
-  notificationLogs   NotificationLog[]
-  auditLogs          AuditLog[]        @relation("auditLogs")
+  managedPharmacies   ManagerPharmacy[]
+  invoiceEvents       InvoiceEvent[]
+  uploadedFiles       InvoiceFile[]
+  notificationLogs    NotificationLog[]
+  auditLogs           AuditLog[]        @relation("auditLogs")
 
   @@index([orgId])
 }
@@ -261,7 +290,8 @@ model Invoice {
   submittedAt   DateTime?
   approvedAt    DateTime?
   approvedById  String?       // User who approved
-  paidAt        DateTime?
+  scheduledPaymentDate DateTime? // Date payment is scheduled for
+  paidAt        DateTime?       // Actual payment date
 
   // Deadline tracking (5th/10th of month)
   deadlineDate  DateTime?     // Computed or set deadline
@@ -368,12 +398,50 @@ enum SlaEventType {
   PROCESSING_REMINDER_SENT // Reminder sent before processing deadline
 }
 
-// Frequency for recurring invoice requirements
+// Frequency for recurring invoice requirements (legacy enum, kept for migration)
 enum RequirementFrequency {
   WEEKLY
+  BI_WEEKLY
   MONTHLY
   QUARTERLY
   ANNUALLY
+  ONE_TIME
+}
+
+// Admin-configurable frequency reference data
+model Frequency {
+  id          String   @id @default(uuid())
+  orgId       String
+  name        String   // e.g., "Monthly", "Bi-Weekly"
+  code        String   // e.g., "MONTHLY", "BI_WEEKLY"
+  description String?
+  isActive    Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  org Org @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, code])
+  @@index([orgId])
+}
+
+// Admin-configurable invoice category (e.g., "Invoice", "Statement", "Credit Memo")
+model InvoiceCategory {
+  id          String   @id @default(uuid())
+  orgId       String
+  name        String   // e.g., "Invoice", "Statement"
+  code        String   // e.g., "INVOICE", "STATEMENT"
+  description String?
+  isActive    Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  org Org @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, code])
+  @@index([orgId])
 }
 
 // Status of a requirement instance
@@ -397,9 +465,9 @@ model InvoiceRequirement {
   description      String?
   frequency        RequirementFrequency @default(MONTHLY)
 
-  // Deadline configuration (day of period)
-  submissionDueDay Int                  @default(5)  // e.g., 5th of month
-  processingDueDay Int                  @default(10) // e.g., 10th of month
+  // Deadline configuration (day of period) — required per requirement
+  submissionDueDay Int                  @default(5)
+  processingDueDay Int                  @default(10)
 
   // For quarterly/annual, which months apply (1-12, comma-separated for quarterly)
   // e.g., "3,6,9,12" for quarterly, "12" for annual December

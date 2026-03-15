@@ -168,7 +168,7 @@ export default function CompliancePage() {
   if (!user || !['ADMIN', 'COMPANY_MANAGER'].includes(user.role)) return null;
 
   return (
-    <div className="max-w-6xl mx-auto space-y-3">
+    <div className="space-y-3">
 
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div>

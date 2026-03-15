@@ -12,12 +12,28 @@ import { Roles } from '../common/decorators/roles.decorator';
 import { Role } from '../common/enums/role.enum';
 import { InvoiceQueryService } from '../query/invoice-query.service';
 import { GroupByType, FilterChip } from '../query/dto/query.dto';
+import { PrismaService } from '../prisma.service';
 
 @Controller('explore')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(Role.ADMIN, Role.COMPANY_MANAGER)
 export class ExploreController {
-  constructor(private readonly queryService: InvoiceQueryService) {}
+  constructor(
+    private readonly queryService: InvoiceQueryService,
+    private readonly prisma: PrismaService,
+  ) {}
+
+  /**
+   * Get assigned pharmacy IDs for a COMPANY_MANAGER user
+   */
+  private async getManagerPharmacyIds(req: any): Promise<string[] | undefined> {
+    if (req.user.role !== Role.COMPANY_MANAGER) return undefined;
+    const assignments = await this.prisma.managerPharmacy.findMany({
+      where: { userId: req.user.id },
+      select: { pharmacyId: true },
+    });
+    return assignments.map((a) => a.pharmacyId);
+  }
 
   /**
    * Search invoices with filters
@@ -46,10 +62,12 @@ export class ExploreController {
     @Request() req,
   ) {
     const orgId = this.getOrgId(req);
+    const assignedPharmacyIds = await this.getManagerPharmacyIds(req);
 
     // Build filters
     const filters = {
       orgId,
+      assignedPharmacyIds,
       pharmacyId: pharmacyId || undefined,
       pharmacyCode: pharmacyCode || undefined,
       invoiceType: invoiceType || undefined,
@@ -122,9 +140,11 @@ export class ExploreController {
     @Request() req,
   ) {
     const orgId = this.getOrgId(req);
+    const assignedPharmacyIds = await this.getManagerPharmacyIds(req);
 
     const filters = {
       orgId,
+      assignedPharmacyIds,
       pharmacyId: pharmacyId || undefined,
       invoiceTypeId: invoiceTypeId || undefined,
       statusIn: status ? status.split(',') : undefined,
@@ -152,6 +172,7 @@ export class ExploreController {
   @Get('sla')
   async getSlaSummary(@Query('month') month: string, @Request() req) {
     const orgId = this.getOrgId(req);
+    const assignedPharmacyIds = await this.getManagerPharmacyIds(req);
 
     if (!month) {
       // Default to current month
@@ -159,7 +180,7 @@ export class ExploreController {
       month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
     }
 
-    return this.queryService.getSlaSummary(month, orgId);
+    return this.queryService.getSlaSummary(month, orgId, assignedPharmacyIds);
   }
 
   /**
@@ -179,9 +200,10 @@ export class ExploreController {
   @Get('options')
   async getFilterOptions(@Request() req) {
     const orgId = this.getOrgId(req);
+    const assignedPharmacyIds = await this.getManagerPharmacyIds(req);
 
     const [pharmacies, invoiceTypes, vendors, statuses] = await Promise.all([
-      this.queryService.getPharmaciesForOrg(orgId),
+      this.queryService.getPharmaciesForOrg(orgId, assignedPharmacyIds),
       this.queryService.getInvoiceTypes(),
       this.queryService.getVendors(),
       Promise.resolve([

@@ -21,6 +21,10 @@ import {
   UpdateVendorDto,
   MergeVendorDto,
   CreateRequiredInvoiceDto,
+  CreateFrequencyDto,
+  UpdateFrequencyDto,
+  CreateInvoiceCategoryDto,
+  UpdateInvoiceCategoryDto,
 } from './dto';
 
 @Controller('v1/admin')
@@ -124,5 +128,73 @@ export class ReferenceController {
   @Delete('required-invoices/:id')
   async deleteRequiredInvoice(@Param('id') id: string, @Request() req: any) {
     return this.referenceService.deleteRequiredInvoice(id, req.user.id);
+  }
+
+  // ===== Frequencies =====
+
+  @Get('frequencies')
+  async listFrequencies() {
+    return this.referenceService.listFrequencies();
+  }
+
+  @Post('frequencies')
+  async createFrequency(@Body() dto: CreateFrequencyDto, @Request() req: any) {
+    if (!dto.orgId) {
+      dto.orgId = req.user.orgId || req.user.org?.id;
+    }
+    return this.referenceService.createFrequency(dto, req.user.id);
+  }
+
+  @Patch('frequencies/:id')
+  async updateFrequency(
+    @Param('id') id: string,
+    @Body() dto: UpdateFrequencyDto,
+    @Request() req: any,
+  ) {
+    return this.referenceService.updateFrequency(id, dto, req.user.id);
+  }
+
+  @Post('frequencies/:id/deactivate')
+  async deactivateFrequency(@Param('id') id: string, @Request() req: any) {
+    return this.referenceService.deactivateFrequency(id, req.user.id);
+  }
+
+  @Post('frequencies/:id/reactivate')
+  async reactivateFrequency(@Param('id') id: string, @Request() req: any) {
+    return this.referenceService.reactivateFrequency(id, req.user.id);
+  }
+
+  // ===== Invoice Categories =====
+
+  @Get('invoice-categories')
+  async listInvoiceCategories() {
+    return this.referenceService.listInvoiceCategories();
+  }
+
+  @Post('invoice-categories')
+  async createInvoiceCategory(@Body() dto: CreateInvoiceCategoryDto, @Request() req: any) {
+    if (!dto.orgId) {
+      dto.orgId = req.user.orgId || req.user.org?.id;
+    }
+    return this.referenceService.createInvoiceCategory(dto, req.user.id);
+  }
+
+  @Patch('invoice-categories/:id')
+  async updateInvoiceCategory(
+    @Param('id') id: string,
+    @Body() dto: UpdateInvoiceCategoryDto,
+    @Request() req: any,
+  ) {
+    return this.referenceService.updateInvoiceCategory(id, dto, req.user.id);
+  }
+
+  @Post('invoice-categories/:id/deactivate')
+  async deactivateInvoiceCategory(@Param('id') id: string, @Request() req: any) {
+    return this.referenceService.deactivateInvoiceCategory(id, req.user.id);
+  }
+
+  @Post('invoice-categories/:id/reactivate')
+  async reactivateInvoiceCategory(@Param('id') id: string, @Request() req: any) {
+    return this.referenceService.reactivateInvoiceCategory(id, req.user.id);
   }
 }

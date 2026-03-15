@@ -10,15 +10,15 @@
   --color-primary-light: #3B82F6;
   --color-accent: #059669;
   --color-accent-dark: #047857;
-  --color-bg: #F8FAFC;
+  --color-bg: #F1F5F9;
   --color-surface: #FFFFFF;
   --color-text: #0F172A;
-  --color-text-secondary: #475569;
-  --color-text-muted: #94A3B8;
-  --bf-border: #E2E8F0;
-  --bf-border-light: #F1F5F9;
-  --bf-card-shadow: 0 1px 3px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.06);
-  --bf-card-shadow-hover: 0 4px 6px rgba(0,0,0,0.04), 0 2px 4px rgba(0,0,0,0.06);
+  --color-text-secondary: #334155;
+  --color-text-muted: #64748B;
+  --bf-border: #CBD5E1;
+  --bf-border-light: #E2E8F0;
+  --bf-card-shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.06);
+  --bf-card-shadow-hover: 0 4px 12px rgba(0,0,0,0.08), 0 2px 4px rgba(0,0,0,0.04);
   --bf-radius-sm: 6px;
   --bf-radius-md: 8px;
   --bf-radius-lg: 12px;
@@ -75,8 +75,13 @@ body {
 /* Cards */
 .card {
   @apply bg-white rounded-lg;
-  border: 1px solid var(--bf-border);
+  border: 1px solid var(--bf-border-light);
   box-shadow: var(--bf-card-shadow);
+  transition: box-shadow 0.2s ease;
+}
+
+.card:hover {
+  box-shadow: var(--bf-card-shadow-hover);
 }
 
 /* Buttons */
@@ -199,12 +204,13 @@ input:disabled, textarea:disabled, select:disabled {
 
 /* Navbar */
 .navbar {
-  background: rgba(255,255,255,0.97);
+  background: rgba(255,255,255,0.95);
   border-bottom: 1px solid var(--bf-border);
   position: sticky;
   top: 0;
   z-index: 40;
-  backdrop-filter: blur(12px);
+  backdrop-filter: blur(16px);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
 }
 
 .nav-link {
@@ -269,7 +275,8 @@ input:disabled, textarea:disabled, select:disabled {
 .stat-card {
   @apply rounded-lg;
   background: var(--color-surface);
-  border: 1px solid var(--bf-border);
+  border: 1px solid var(--bf-border-light);
+  box-shadow: var(--bf-card-shadow);
 }
 
 .stat-value {
@@ -280,6 +287,27 @@ input:disabled, textarea:disabled, select:disabled {
 .stat-label {
   @apply text-xs font-medium uppercase tracking-wider;
   color: var(--color-text-muted);
+}
+
+/* Table styling */
+table thead {
+  background: #F8FAFC;
+}
+
+table thead th {
+  color: var(--color-text-secondary);
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+}
+
+table tbody tr {
+  transition: background-color 0.1s ease;
+}
+
+table tbody td {
+  color: var(--color-text);
 }
 
 /* Scrollbar styling */

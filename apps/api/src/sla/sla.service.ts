@@ -30,12 +30,24 @@ export interface PharmacySlaStatus {
 
 @Injectable()
 export class SlaService {
-  // SLA configuration (can be overridden via environment)
-  private readonly SUBMISSION_DUE_DAY = parseInt(process.env.SUBMISSION_DUE_DAY || '5', 10);
-  private readonly PROCESSING_DUE_DAY = parseInt(process.env.PROCESSING_DUE_DAY || '10', 10);
   private readonly ORG_TIMEZONE = process.env.ORG_TIMEZONE || 'America/New_York';
 
   constructor(private readonly prisma: PrismaService) {}
+
+  /**
+   * Get SLA due days for a pharmacy, falling back to org defaults
+   */
+  private async getDueDays(pharmacyId: string): Promise<{ submissionDueDay: number; processingDueDay: number }> {
+    const pharmacy = await this.prisma.pharmacy.findUnique({
+      where: { id: pharmacyId },
+      select: { submissionDueDay: true, processingDueDay: true },
+    });
+
+    return {
+      submissionDueDay: pharmacy?.submissionDueDay ?? 5,
+      processingDueDay: pharmacy?.processingDueDay ?? 10,
+    };
+  }
 
   /**
    * Get current date in org timezone
@@ -82,15 +94,17 @@ export class SlaService {
       // Ensure monthly requirement record exists
       await this.ensureMonthlyRequirement(pharmacy.id, evalMonth);
 
-      // Check submission deadline (5th of month)
-      if (currentDay >= this.SUBMISSION_DUE_DAY) {
-        const hadSubmissionViolation = await this.checkSubmissionDeadline(pharmacy.id, evalMonth);
+      const dueDays = await this.getDueDays(pharmacy.id);
+
+      // Check submission deadline (pharmacy-specific day)
+      if (currentDay >= dueDays.submissionDueDay) {
+        const hadSubmissionViolation = await this.checkSubmissionDeadline(pharmacy.id, evalMonth, dueDays.submissionDueDay);
         if (hadSubmissionViolation) submissionViolations++;
       }
 
-      // Check processing deadline (10th of month)
-      if (currentDay >= this.PROCESSING_DUE_DAY) {
-        const hadProcessingViolation = await this.checkProcessingDeadline(pharmacy.id, evalMonth);
+      // Check processing deadline (pharmacy-specific day)
+      if (currentDay >= dueDays.processingDueDay) {
+        const hadProcessingViolation = await this.checkProcessingDeadline(pharmacy.id, evalMonth, dueDays.processingDueDay);
         if (hadProcessingViolation) processingViolations++;
       }
     }
@@ -143,6 +157,8 @@ export class SlaService {
         });
 
         if (!existingReminder) {
+          const dueDays = await this.getDueDays(pharmacy.id);
+
           await this.prisma.slaEvent.create({
             data: {
               pharmacyId: pharmacy.id,
@@ -159,7 +175,7 @@ export class SlaService {
               type: 'sla_reminder',
               channel: 'in_app',
               subject: `${type === 'submission' ? 'Invoice Submission' : 'Invoice Processing'} Reminder`,
-              body: `Reminder: ${type === 'submission' ? 'Invoice submissions' : 'Invoice processing'} due by ${type === 'submission' ? this.SUBMISSION_DUE_DAY : this.PROCESSING_DUE_DAY}th of the month.`,
+              body: `Reminder: ${type === 'submission' ? 'Invoice submissions' : 'Invoice processing'} due by ${type === 'submission' ? dueDays.submissionDueDay : dueDays.processingDueDay}th of the month.`,
               metadata: { yearMonth, type },
             },
           });
@@ -175,7 +191,7 @@ export class SlaService {
   /**
    * Get SLA summary for managers
    */
-  async getSummary(orgId: string, yearMonth?: string): Promise<{
+  async getSummary(orgId: string, yearMonth?: string, assignedPharmacyIds?: string[]): Promise<{
     yearMonth: string;
     totalPharmacies: number;
     compliant: number;
@@ -191,8 +207,13 @@ export class SlaService {
     const startDate = new Date(parseInt(yearStr), parseInt(monthStr) - 1, 1);
     const endDate = new Date(parseInt(yearStr), parseInt(monthStr), 0, 23, 59, 59);
 
+    const pharmacyWhere: any = { orgId, isActive: true };
+    if (assignedPharmacyIds) {
+      pharmacyWhere.id = { in: assignedPharmacyIds };
+    }
+
     const pharmacies = await this.prisma.pharmacy.findMany({
-      where: { orgId, isActive: true },
+      where: pharmacyWhere,
       include: {
         slaEvents: {
           where: { yearMonth: evalMonth },
@@ -238,10 +259,29 @@ export class SlaService {
         (i) => i.status === 'PENDING' && i.submissionDeadline && new Date(i.submissionDeadline) < now
       ).length;
 
-      // Count processing missed: SUBMITTED (not PROCESSED) instances where processingDeadline has passed
-      const processingMissedCount = instances.filter(
-        (i) => i.status === 'SUBMITTED' && i.processingDeadline && new Date(i.processingDeadline) < now
-      ).length;
+      // Processing SLA: consider late submissions that were processed promptly.
+      // If pharmacy submitted late but manager processed within the processing window
+      // (processingDueDay - submissionDueDay days from submission), count processing as met.
+      const processingDueDay = pharmacy.processingDueDay ?? 10;
+      const submissionDueDay = pharmacy.submissionDueDay ?? 5;
+      const processingWindowDays = processingDueDay - submissionDueDay; // days allowed for manager to process
+
+      const processingMissedCount = instances.filter((i) => {
+        if (i.status !== 'SUBMITTED') return false;
+        if (!i.processingDeadline) return false;
+        const originalDeadlinePassed = new Date(i.processingDeadline) < now;
+        if (!originalDeadlinePassed) return false;
+
+        // If submitted late, give manager a processing window from submission date
+        if (i.submittedAt && i.submissionDeadline && new Date(i.submittedAt) > new Date(i.submissionDeadline)) {
+          const extendedDeadline = new Date(i.submittedAt);
+          extendedDeadline.setDate(extendedDeadline.getDate() + Math.max(processingWindowDays, 5));
+          // If extended deadline hasn't passed yet, processing is still on time
+          return extendedDeadline < now;
+        }
+
+        return true; // Original deadline passed and submission was on time
+      }).length;
 
       // Submission deadline is met if all instances are submitted or no pending instances have missed their deadline
       const submissionDeadlineMet = submissionMissedCount === 0;
@@ -252,7 +292,7 @@ export class SlaService {
       // SLA is met only if:
       // 1. There are requirements defined (expectedCount > 0)
       // 2. All requirements are processed
-      // 3. No missed deadlines
+      // 3. No missed deadlines (submission can be missed by pharmacy, but processing must be met by manager)
       const isMet = expectedCount > 0 && processedCount >= expectedCount && submissionDeadlineMet && processingDeadlineMet;
 
       return {
@@ -342,10 +382,25 @@ export class SlaService {
       (i) => i.status === 'PENDING' && i.submissionDeadline && new Date(i.submissionDeadline) < now
     ).length;
 
-    // Count processing missed: SUBMITTED (not PROCESSED) instances where processingDeadline has passed
-    const processingMissedCount = instances.filter(
-      (i) => i.status === 'SUBMITTED' && i.processingDeadline && new Date(i.processingDeadline) < now
-    ).length;
+    // Processing SLA: consider late submissions that were processed promptly.
+    const dueDays = await this.getDueDays(pharmacyId);
+    const processingWindowDays = dueDays.processingDueDay - dueDays.submissionDueDay;
+
+    const processingMissedCount = instances.filter((i) => {
+      if (i.status !== 'SUBMITTED') return false;
+      if (!i.processingDeadline) return false;
+      const originalDeadlinePassed = new Date(i.processingDeadline) < now;
+      if (!originalDeadlinePassed) return false;
+
+      // If submitted late, give manager a processing window from submission date
+      if (i.submittedAt && i.submissionDeadline && new Date(i.submittedAt) > new Date(i.submissionDeadline)) {
+        const extendedDeadline = new Date(i.submittedAt);
+        extendedDeadline.setDate(extendedDeadline.getDate() + Math.max(processingWindowDays, 5));
+        return extendedDeadline < now;
+      }
+
+      return true;
+    }).length;
 
     // Submission deadline is met if no pending instances have missed their deadline
     const submissionDeadlineMet = submissionMissedCount === 0;
@@ -455,10 +510,25 @@ export class SlaService {
       (i) => i.status === 'PENDING' && i.submissionDeadline && new Date(i.submissionDeadline) < now
     ).length;
 
-    // Count missed processing deadlines: SUBMITTED (not PROCESSED) instances where processingDeadline has passed
-    const missedProcessingCount = requirementInstances.filter(
-      (i) => i.status === 'SUBMITTED' && i.processingDeadline && new Date(i.processingDeadline) < now
-    ).length;
+    // Count missed processing deadlines, accounting for late submissions
+    const dueDays = await this.getDueDays(pharmacyId);
+    const processingWindowDays = dueDays.processingDueDay - dueDays.submissionDueDay;
+
+    const missedProcessingCount = requirementInstances.filter((i) => {
+      if (i.status !== 'SUBMITTED') return false;
+      if (!i.processingDeadline) return false;
+      const originalDeadlinePassed = new Date(i.processingDeadline) < now;
+      if (!originalDeadlinePassed) return false;
+
+      // If submitted late, give manager a processing window from submission date
+      if (i.submittedAt && i.submissionDeadline && new Date(i.submittedAt) > new Date(i.submissionDeadline)) {
+        const extendedDeadline = new Date(i.submittedAt);
+        extendedDeadline.setDate(extendedDeadline.getDate() + Math.max(processingWindowDays, 5));
+        return extendedDeadline < now;
+      }
+
+      return true;
+    }).length;
 
     // Also count actual invoices as a fallback (for orgs without requirement definitions)
     const submittedInvoiceCount = await this.prisma.invoice.count({
@@ -534,7 +604,7 @@ export class SlaService {
    * Check submission deadline and record violations
    * Returns true if there was a violation
    */
-  private async checkSubmissionDeadline(pharmacyId: string, yearMonth: string): Promise<boolean> {
+  private async checkSubmissionDeadline(pharmacyId: string, yearMonth: string, submissionDueDay?: number): Promise<boolean> {
     const req = await this.prisma.monthlyInvoiceRequirement.findUnique({
       where: {
         pharmacyId_yearMonth: { pharmacyId, yearMonth },
@@ -560,11 +630,11 @@ export class SlaService {
           pharmacyId,
           yearMonth,
           eventType: SlaEventType.SUBMISSION_MISSED,
-          notes: `Submission deadline missed: ${req.submittedCount}/${req.expectedCount} invoices submitted by ${this.SUBMISSION_DUE_DAY}th`,
+          notes: `Submission deadline missed: ${req.submittedCount}/${req.expectedCount} invoices submitted by ${submissionDueDay ?? 5}th`,
           metadata: {
             expected: req.expectedCount,
             actual: req.submittedCount,
-            deadline: this.SUBMISSION_DUE_DAY,
+            deadline: submissionDueDay ?? 5,
           },
         },
       });
@@ -591,7 +661,7 @@ export class SlaService {
    * Check processing deadline and record violations
    * Returns true if there was a violation
    */
-  private async checkProcessingDeadline(pharmacyId: string, yearMonth: string): Promise<boolean> {
+  private async checkProcessingDeadline(pharmacyId: string, yearMonth: string, processingDueDay?: number): Promise<boolean> {
     const req = await this.prisma.monthlyInvoiceRequirement.findUnique({
       where: {
         pharmacyId_yearMonth: { pharmacyId, yearMonth },
@@ -617,11 +687,11 @@ export class SlaService {
           pharmacyId,
           yearMonth,
           eventType: SlaEventType.PROCESSING_MISSED,
-          notes: `Processing deadline missed: ${req.processedCount}/${req.expectedCount} invoices processed by ${this.PROCESSING_DUE_DAY}th`,
+          notes: `Processing deadline missed: ${req.processedCount}/${req.expectedCount} invoices processed by ${processingDueDay ?? 10}th`,
           metadata: {
             expected: req.expectedCount,
             actual: req.processedCount,
-            deadline: this.PROCESSING_DUE_DAY,
+            deadline: processingDueDay ?? 10,
           },
         },
       });

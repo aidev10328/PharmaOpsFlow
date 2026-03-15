@@ -124,9 +124,14 @@ export class InvoiceService {
         where.pharmacyId = query.pharmacyId;
       }
     } else if (userRole === Role.COMPANY_MANAGER && userOrgId) {
-      // Manager can see invoices for all pharmacies in their org
-      where.pharmacy = { orgId: userOrgId };
-      if (query.pharmacyId) {
+      // Manager can see invoices for assigned pharmacies only
+      const assignments = await this.prisma.managerPharmacy.findMany({
+        where: { userId },
+        select: { pharmacyId: true },
+      });
+      const assignedIds = assignments.map((a) => a.pharmacyId);
+      where.pharmacyId = { in: assignedIds };
+      if (query.pharmacyId && assignedIds.includes(query.pharmacyId)) {
         where.pharmacyId = query.pharmacyId;
       }
     } else {
@@ -371,6 +376,14 @@ export class InvoiceService {
       }
     }
 
+    // Activate pending vendor (isActive=false) when invoice is submitted
+    if (invoice.vendorId) {
+      await this.prisma.vendor.updateMany({
+        where: { id: invoice.vendorId, isActive: false },
+        data: { isActive: true },
+      });
+    }
+
     return this.transitionStatus(
       invoiceId,
       InvoiceStatus.SUBMITTED,
@@ -415,12 +428,16 @@ export class InvoiceService {
    * Schedule payment for an invoice
    */
   async schedule(invoiceId: string, userId: string, dto?: InvoiceStatusDto) {
+    if (!dto?.scheduledDate) {
+      throw new BadRequestException('Scheduled payment date is required');
+    }
     return this.transitionStatus(
       invoiceId,
       InvoiceStatus.SCHEDULED,
       InvoiceEventType.SCHEDULED,
       userId,
       dto?.notes,
+      { scheduledPaymentDate: new Date(dto.scheduledDate) },
     );
   }
 
@@ -428,13 +445,16 @@ export class InvoiceService {
    * Mark invoice as paid
    */
   async markPaid(invoiceId: string, userId: string, dto?: InvoiceStatusDto) {
+    if (!dto?.paidDate) {
+      throw new BadRequestException('Payment date is required');
+    }
     return this.transitionStatus(
       invoiceId,
       InvoiceStatus.PAID,
       InvoiceEventType.PAID,
       userId,
       dto?.notes,
-      { paidAt: new Date() },
+      { paidAt: new Date(dto.paidDate) },
     );
   }
 
@@ -544,9 +564,12 @@ export class InvoiceService {
     // Admin has access to everything
     if (userRole === Role.ADMIN) return true;
 
-    // Manager has access to invoices in their org
+    // Manager has access to assigned pharmacies
     if (userRole === Role.COMPANY_MANAGER && userOrgId === invoice.pharmacy.orgId) {
-      return true;
+      const assignment = await this.prisma.managerPharmacy.findUnique({
+        where: { userId_pharmacyId: { userId, pharmacyId: invoice.pharmacyId } },
+      });
+      return !!assignment;
     }
 
     // Check pharmacy membership
@@ -606,12 +629,14 @@ export class InvoiceService {
   }
 
   /**
-   * Get invoices pending approval (for managers)
+   * Get invoices pending manager action (SUBMITTED, APPROVED, SCHEDULED)
    */
   async getPendingApproval(userOrgId: string) {
     return this.prisma.invoice.findMany({
       where: {
-        status: InvoiceStatus.SUBMITTED,
+        status: {
+          in: [InvoiceStatus.SUBMITTED, InvoiceStatus.APPROVED, InvoiceStatus.SCHEDULED],
+        },
         pharmacy: { orgId: userOrgId },
       },
       include: {
@@ -619,20 +644,40 @@ export class InvoiceService {
         vendor: { select: { id: true, name: true } },
         invoiceType: { select: { id: true, name: true } },
       },
-      orderBy: [{ dueDate: 'asc' }, { submittedAt: 'asc' }],
+      orderBy: [{ status: 'asc' }, { dueDate: 'asc' }, { submittedAt: 'asc' }],
     });
   }
 
   /**
    * Get invoice statistics for a pharmacy or org
    */
-  async getStats(pharmacyId?: string, orgId?: string) {
+  async getStats(pharmacyId?: string, orgId?: string, managerId?: string, month?: string) {
     const where: Prisma.InvoiceWhereInput = {};
 
     if (pharmacyId) {
       where.pharmacyId = pharmacyId;
+    } else if (managerId && orgId) {
+      // Manager: filter by assigned pharmacies
+      const assignments = await this.prisma.managerPharmacy.findMany({
+        where: { userId: managerId },
+        select: { pharmacyId: true },
+      });
+      where.pharmacyId = { in: assignments.map((a) => a.pharmacyId) };
     } else if (orgId) {
       where.pharmacy = { orgId };
+    }
+
+    // Filter by month if provided (e.g., "2026-03")
+    if (month) {
+      const [year, monthNum] = month.split('-').map(Number);
+      // Use UTC dates to avoid timezone offset issues
+      const monthStart = new Date(Date.UTC(year, monthNum - 1, 1));
+      const monthEnd = new Date(Date.UTC(year, monthNum, 0, 23, 59, 59, 999));
+      // Include invoices with invoiceDate in the month OR null invoiceDate (incomplete drafts)
+      where.OR = [
+        { invoiceDate: { gte: monthStart, lte: monthEnd } },
+        { invoiceDate: null },
+      ];
     }
 
     const [statusCounts, totalAmount, upcomingDue] = await Promise.all([
@@ -640,6 +685,7 @@ export class InvoiceService {
         by: ['status'],
         where,
         _count: { id: true },
+        _sum: { amount: true },
       }),
       this.prisma.invoice.aggregate({
         where: { ...where, status: { notIn: [InvoiceStatus.REJECTED] } },
@@ -660,6 +706,13 @@ export class InvoiceService {
       statusCounts: statusCounts.reduce(
         (acc, item) => {
           acc[item.status] = item._count.id;
+          return acc;
+        },
+        {} as Record<string, number>,
+      ),
+      statusAmounts: statusCounts.reduce(
+        (acc, item) => {
+          acc[item.status] = Number(item._sum.amount || 0);
           return acc;
         },
         {} as Record<string, number>,

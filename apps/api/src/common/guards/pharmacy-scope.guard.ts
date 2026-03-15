@@ -61,16 +61,26 @@ export class PharmacyScopeGuard implements CanActivate {
       throw new NotFoundException('Pharmacy not found');
     }
 
-    // COMPANY_MANAGER can access all pharmacies in their org
+    // COMPANY_MANAGER can access only assigned pharmacies in their org
     if (options.allowOrgManagers && user.role === Role.COMPANY_MANAGER) {
-      if (user.orgId === pharmacy.orgId) {
-        // Attach pharmacy to request for later use
-        request.pharmacy = pharmacy;
-        return true;
+      if (user.orgId !== pharmacy.orgId) {
+        throw new ForbiddenException(
+          'You do not have access to pharmacies outside your organization',
+        );
       }
-      throw new ForbiddenException(
-        'You do not have access to pharmacies outside your organization',
-      );
+      // Check manager-pharmacy assignment
+      const assignment = await this.prisma.managerPharmacy.findUnique({
+        where: {
+          userId_pharmacyId: { userId: user.id, pharmacyId },
+        },
+      });
+      if (!assignment) {
+        throw new ForbiddenException(
+          'You are not assigned to manage this pharmacy',
+        );
+      }
+      request.pharmacy = pharmacy;
+      return true;
     }
 
     // Check pharmacy membership for PHARMACY_ADMIN, PHARMACY_USER, READ_ONLY

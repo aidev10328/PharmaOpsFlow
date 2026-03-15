@@ -24,13 +24,15 @@ type Pharmacy = {
   phone?: string;
   website?: string;
   timezone?: string;
+  submissionDueDay?: number | null;
+  processingDueDay?: number | null;
   isActive: boolean;
   org: { id: string; name: string };
   _count: { members: number; invoices: number };
 };
 
 const emptyCreateForm = { name: '', code: '', street: '', city: '', state: '', zip: '', phone: '', website: '', timezone: '' };
-const emptyEditForm = { name: '', street: '', city: '', state: '', zip: '', phone: '', website: '', timezone: '' };
+const emptyEditForm = { name: '', street: '', city: '', state: '', zip: '', phone: '', website: '', timezone: '', submissionDueDay: '', processingDueDay: '' };
 
 export default function AdminPharmaciesPage() {
   const { user, loading } = useAuth();
@@ -123,6 +125,8 @@ export default function AdminPharmaciesPage() {
       phone: pharmacy.phone || '',
       website: pharmacy.website || '',
       timezone: pharmacy.timezone || '',
+      submissionDueDay: pharmacy.submissionDueDay != null ? String(pharmacy.submissionDueDay) : '',
+      processingDueDay: pharmacy.processingDueDay != null ? String(pharmacy.processingDueDay) : '',
     });
     setError(null);
     setSuccess(null);
@@ -145,6 +149,8 @@ export default function AdminPharmaciesPage() {
           phone: editForm.phone || undefined,
           website: editForm.website || undefined,
           timezone: editForm.timezone || undefined,
+          submissionDueDay: editForm.submissionDueDay ? parseInt(editForm.submissionDueDay, 10) : undefined,
+          processingDueDay: editForm.processingDueDay ? parseInt(editForm.processingDueDay, 10) : undefined,
         }),
       });
       if (!res.ok) {
@@ -211,7 +217,7 @@ export default function AdminPharmaciesPage() {
   if (!user || user.role !== 'ADMIN') return null;
 
   return (
-    <div className="max-w-6xl mx-auto space-y-3">
+    <div className="space-y-3">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -313,6 +319,14 @@ export default function AdminPharmaciesPage() {
                 <option value="America/Los_Angeles">Pacific</option>
               </select>
             </div>
+            <div>
+              <label className="block text-[10px] font-medium text-gray-700 mb-0.5">Submission Due Day</label>
+              <input type="number" value={editForm.submissionDueDay} onChange={e => setEditForm(f => ({ ...f, submissionDueDay: e.target.value }))} min="1" max="28" placeholder="Org default" className="input-field text-xs py-1.5" />
+            </div>
+            <div>
+              <label className="block text-[10px] font-medium text-gray-700 mb-0.5">Processing Due Day</label>
+              <input type="number" value={editForm.processingDueDay} onChange={e => setEditForm(f => ({ ...f, processingDueDay: e.target.value }))} min="1" max="28" placeholder="Org default" className="input-field text-xs py-1.5" />
+            </div>
             <div className="col-span-2 flex items-end gap-1">
               <button type="submit" disabled={saving} className="text-[10px] px-2 py-1 rounded bg-green-500 text-white font-medium">{saving ? '...' : 'Save'}</button>
               <button type="button" onClick={() => setEditingId(null)} className="text-[10px] px-2 py-1 rounded bg-gray-100 text-gray-600 font-medium">Cancel</button>
@@ -360,6 +374,7 @@ export default function AdminPharmaciesPage() {
                 </td>
                 <td className="px-3 py-2">
                   <div className="flex items-center gap-1">
+                    <Link href={`/dashboard/admin/pharmacies/${pharmacy.id}/members`} className="text-[10px] px-1.5 py-0.5 rounded hover:bg-primary-50 text-primary-600 font-medium">Members</Link>
                     <button onClick={() => startEdit(pharmacy)} className="text-[10px] px-1.5 py-0.5 rounded hover:bg-gray-100 text-gray-600">Edit</button>
                     <button onClick={() => toggleActive(pharmacy)} className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${pharmacy.isActive ? 'text-red-600 hover:bg-red-50' : 'text-emerald-600 hover:bg-emerald-50'}`}>
                       {pharmacy.isActive ? 'Disable' : 'Enable'}

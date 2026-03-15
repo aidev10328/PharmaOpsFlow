@@ -60,20 +60,12 @@ export class InvoiceController {
   }
 
   /**
-   * Get pending approval invoices (managers only)
+   * Get invoices pending manager action (SUBMITTED, APPROVED, SCHEDULED)
    */
   @Get('pending-approval')
   @UseGuards(RolesGuard)
   @Roles(Role.ADMIN, Role.COMPANY_MANAGER)
   async getPendingApproval(@Request() req) {
-    if (req.user.role === Role.ADMIN) {
-      // Admin can see all pending - for now just return empty or all
-      return this.invoiceService.findAll(
-        { status: 'SUBMITTED' as any },
-        req.user.id,
-        req.user.role,
-      );
-    }
     return this.invoiceService.getPendingApproval(req.user.orgId);
   }
 
@@ -81,7 +73,7 @@ export class InvoiceController {
    * Get invoice statistics
    */
   @Get('stats')
-  async getStats(@Query('pharmacyId') pharmacyId: string, @Request() req) {
+  async getStats(@Query('pharmacyId') pharmacyId: string, @Query('month') month: string, @Request() req) {
     if (pharmacyId) {
       const hasAccess = await this.checkPharmacyAccess(
         req.user,
@@ -91,12 +83,12 @@ export class InvoiceController {
       if (!hasAccess) {
         throw new ForbiddenException('You do not have access to this pharmacy');
       }
-      return this.invoiceService.getStats(pharmacyId);
+      return this.invoiceService.getStats(pharmacyId, undefined, undefined, month);
     }
 
-    // Return org stats for managers
+    // Return stats for assigned pharmacies
     if (req.user.role === Role.COMPANY_MANAGER) {
-      return this.invoiceService.getStats(undefined, req.user.orgId);
+      return this.invoiceService.getStats(undefined, req.user.orgId, req.user.id);
     }
 
     // For admin, return all stats
@@ -325,12 +317,12 @@ export class InvoiceController {
     const pharmacyIds = memberships.map((m) => m.pharmacyId);
 
     // Also include pharmacies for managers/admins
-    if (req.user.role === Role.COMPANY_MANAGER && req.user.orgId) {
-      const orgPharmacies = await this.invoiceService['prisma'].pharmacy.findMany({
-        where: { orgId: req.user.orgId },
-        select: { id: true },
+    if (req.user.role === Role.COMPANY_MANAGER) {
+      const assignments = await this.invoiceService['prisma'].managerPharmacy.findMany({
+        where: { userId: req.user.id },
+        select: { pharmacyId: true },
       });
-      pharmacyIds.push(...orgPharmacies.map((p) => p.id));
+      pharmacyIds.push(...assignments.map((a) => a.pharmacyId));
     } else if (req.user.role === Role.ADMIN) {
       const allPharmacies = await this.invoiceService['prisma'].pharmacy.findMany({
         select: { id: true },
@@ -359,13 +351,12 @@ export class InvoiceController {
     // Admin has full access
     if (user.role === Role.ADMIN) return true;
 
-    // Check if manager has org access
+    // Check if manager is assigned to this pharmacy
     if (user.role === Role.COMPANY_MANAGER) {
-      const pharmacy = await this.invoiceService['prisma'].pharmacy.findUnique({
-        where: { id: pharmacyId },
-        select: { orgId: true },
+      const assignment = await this.invoiceService['prisma'].managerPharmacy.findUnique({
+        where: { userId_pharmacyId: { userId: user.id, pharmacyId } },
       });
-      return pharmacy?.orgId === user.orgId;
+      return !!assignment;
     }
 
     // Check pharmacy membership

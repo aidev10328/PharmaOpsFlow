@@ -84,7 +84,7 @@ export class InvoiceQueryService {
   /**
    * Get SLA summary for a month
    */
-  async getSlaSummary(month: string, orgId: string | null | undefined): Promise<SlaSummaryResult> {
+  async getSlaSummary(month: string, orgId: string | null | undefined, assignedPharmacyIds?: string[]): Promise<SlaSummaryResult> {
     // Validate month format
     if (!/^\d{4}-\d{2}$/.test(month)) {
       throw new BadRequestException('Month must be in YYYY-MM format');
@@ -103,9 +103,14 @@ export class InvoiceQueryService {
       resolvedOrgId = firstOrg?.id;
     }
 
-    // Get all pharmacies in the org
+    // Get pharmacies (scoped by assignment for managers)
+    const pharmacyWhere: any = resolvedOrgId ? { orgId: resolvedOrgId, isActive: true } : { isActive: true };
+    if (assignedPharmacyIds) {
+      pharmacyWhere.id = { in: assignedPharmacyIds };
+    }
+
     const pharmacies = await this.prisma.pharmacy.findMany({
-      where: resolvedOrgId ? { orgId: resolvedOrgId, isActive: true } : { isActive: true },
+      where: pharmacyWhere,
       select: { id: true, name: true, code: true },
     });
 
@@ -264,7 +269,16 @@ export class InvoiceQueryService {
   /**
    * Get list of pharmacies for filter dropdown
    */
-  async getPharmaciesForOrg(orgId: string | null | undefined) {
+  async getPharmaciesForOrg(orgId: string | null | undefined, assignedPharmacyIds?: string[]) {
+    // If manager has assigned pharmacies, only show those
+    if (assignedPharmacyIds) {
+      return this.prisma.pharmacy.findMany({
+        where: { id: { in: assignedPharmacyIds }, isActive: true },
+        select: { id: true, name: true, code: true },
+        orderBy: { name: 'asc' },
+      });
+    }
+
     // If no orgId provided (ADMIN users), get first org or return all active pharmacies
     let resolvedOrgId = orgId;
     if (!orgId) {
@@ -321,6 +335,11 @@ export class InvoiceQueryService {
     // Always scope by org
     if (filters.orgId) {
       where.pharmacy = { orgId: filters.orgId };
+    }
+
+    // Manager assignment scope — restrict to assigned pharmacies
+    if (filters.assignedPharmacyIds) {
+      where.pharmacyId = { in: filters.assignedPharmacyIds };
     }
 
     // Pharmacy filter

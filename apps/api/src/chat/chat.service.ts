@@ -85,6 +85,7 @@ export class ChatService {
     dto: ChatPlanRequestDto,
     userId: string,
     orgId: string,
+    managerId?: string,
   ): Promise<QueryPlanResponse> {
     // Check if AI is enabled
     if (!this.isAiEnabled()) {
@@ -93,10 +94,20 @@ export class ChatService {
       );
     }
 
+    // Get assigned pharmacy IDs for managers
+    let assignedPharmacyIds: string[] | undefined;
+    if (managerId) {
+      const assignments = await this.prisma.managerPharmacy.findMany({
+        where: { userId: managerId },
+        select: { pharmacyId: true },
+      });
+      assignedPharmacyIds = assignments.map((a) => a.pharmacyId);
+    }
+
     // Get context for the prompt
     const [invoiceTypes, pharmacies, user] = await Promise.all([
       this.queryService.getInvoiceTypes(),
-      this.queryService.getPharmaciesForOrg(orgId),
+      this.queryService.getPharmaciesForOrg(orgId, assignedPharmacyIds),
       this.prisma.user.findUnique({
         where: { id: userId },
         select: { firstName: true, lastName: true, email: true, role: true },
@@ -156,6 +167,7 @@ export class ChatService {
     dto: ChatExecuteRequestDto,
     userId: string,
     orgId: string,
+    managerId?: string,
   ): Promise<ChatExecuteResponse> {
     const { queryPlan, sessionId, originalMessage } = dto;
 
@@ -168,6 +180,15 @@ export class ChatService {
       orgId,
     );
     filters.orgId = orgId;
+
+    // For managers, scope to assigned pharmacies
+    if (managerId) {
+      const assignments = await this.prisma.managerPharmacy.findMany({
+        where: { userId: managerId },
+        select: { pharmacyId: true },
+      });
+      filters.assignedPharmacyIds = assignments.map((a) => a.pharmacyId);
+    }
 
     // Execute based on intent
     let result: any;
@@ -195,7 +216,7 @@ export class ChatService {
         const month =
           filters.month ||
           `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`;
-        result = await this.queryService.getSlaSummary(month, orgId);
+        result = await this.queryService.getSlaSummary(month, orgId, filters.assignedPharmacyIds);
         summaryText = this.generateSlaSummary(result);
         break;
 

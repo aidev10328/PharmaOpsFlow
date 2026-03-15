@@ -10,3 +10,7 @@ export * from './create-vendor.dto';
 export * from './update-vendor.dto';
 export * from './merge-vendor.dto';
 export * from './create-required-invoice.dto';
+export * from './create-frequency.dto';
+export * from './update-frequency.dto';
+export * from './create-invoice-category.dto';
+export * from './update-invoice-category.dto';

@@ -94,6 +94,16 @@ export class RequirementsService {
       },
     });
 
+    // Auto-generate instances from current month through December
+    const now = new Date();
+    const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const endMonth = `${now.getFullYear()}-12`;
+    try {
+      await this.generateInstances(currentMonth, endMonth, dto.pharmacyId, resolvedOrgId);
+    } catch {
+      // Don't fail requirement creation if instance generation fails
+    }
+
     return this.mapToResponse(requirement);
   }
 
@@ -285,15 +295,17 @@ export class RequirementsService {
             continue;
           }
 
-          // Calculate deadlines
+          // Calculate deadlines from requirement's own due days
+          const submissionDay = req.submissionDueDay ?? 5;
+          const processingDay = req.processingDueDay ?? 10;
           const submissionDeadline = this.calculateDeadline(
             period.start,
-            req.submissionDueDay,
+            submissionDay,
             req.frequency,
           );
           const processingDeadline = this.calculateDeadline(
             period.start,
-            req.processingDueDay,
+            processingDay,
             req.frequency,
           );
 
@@ -531,6 +543,15 @@ export class RequirementsService {
     const resolvedOrgId = await this.resolveOrgId(orgId);
     const now = new Date();
 
+    // Auto-generate instances for current month if none exist yet (handles new year rollover)
+    const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const endMonth = `${now.getFullYear()}-12`;
+    try {
+      await this.generateInstances(currentMonth, endMonth, undefined, resolvedOrgId);
+    } catch {
+      // Don't fail evaluation if generation fails
+    }
+
     // Build where clause
     const where: any = {
       requirement: { pharmacy: { orgId: resolvedOrgId }, isActive: true },
@@ -731,10 +752,12 @@ export class RequirementsService {
     });
 
     const pending = instances.filter(
-      (i) => i.status === RequirementInstanceStatus.PENDING,
+      (i) => i.status === RequirementInstanceStatus.PENDING && i.submissionDeadline >= now,
     ).length;
     const overdue = instances.filter(
-      (i) => i.status === RequirementInstanceStatus.OVERDUE,
+      (i) =>
+        i.status === RequirementInstanceStatus.OVERDUE ||
+        (i.status === RequirementInstanceStatus.PENDING && i.submissionDeadline < now),
     ).length;
     const submitted = instances.filter(
       (i) => i.status === RequirementInstanceStatus.SUBMITTED,
@@ -763,6 +786,13 @@ export class RequirementsService {
       where: { pharmacyId, userId },
     });
     return !!membership;
+  }
+
+  async verifyManagerAssignment(pharmacyId: string, userId: string): Promise<boolean> {
+    const assignment = await this.prisma.managerPharmacy.findUnique({
+      where: { userId_pharmacyId: { userId, pharmacyId } },
+    });
+    return !!assignment;
   }
 
   /**

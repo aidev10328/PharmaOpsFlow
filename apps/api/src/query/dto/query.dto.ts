@@ -36,6 +36,11 @@ export class InvoiceFiltersDto {
   orgId?: string; // Always set from authenticated user
 
   @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  assignedPharmacyIds?: string[]; // For COMPANY_MANAGER: only show assigned pharmacies
+
+  @IsOptional()
   @IsString()
   pharmacyId?: string;
 

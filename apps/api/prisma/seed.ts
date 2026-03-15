@@ -46,8 +46,6 @@ async function main() {
       id: '00000000-0000-0000-0000-000000000001',
       name: 'Main Company',
       timezone: 'America/New_York',
-      submissionDueDay: 5,
-      processingDueDay: 10,
     },
   });
   console.log(`  Created org: ${org.name}`);
@@ -182,6 +180,44 @@ async function main() {
       },
     });
     console.log(`  Added ${pharmacyUsers[i].email} as PHARMACY_USER to ${pharmacies[i].name}`);
+  }
+
+  // ============================================
+  // 4b. Create Frequencies (admin-configurable)
+  // ============================================
+  console.log('\nCreating frequencies...');
+  await prisma.frequency.deleteMany({});
+  const frequencyData = [
+    { code: 'WEEKLY', name: 'Weekly', description: 'Every week', sortOrder: 1 },
+    { code: 'BI_WEEKLY', name: 'Bi-Weekly', description: 'Every two weeks', sortOrder: 2 },
+    { code: 'MONTHLY', name: 'Monthly', description: 'Once a month', sortOrder: 3 },
+    { code: 'QUARTERLY', name: 'Quarterly', description: 'Every three months', sortOrder: 4 },
+    { code: 'SEMI_ANNUALLY', name: 'Semi-Annually', description: 'Twice a year', sortOrder: 5 },
+    { code: 'ANNUALLY', name: 'Annually', description: 'Once a year', sortOrder: 6 },
+  ];
+  for (const data of frequencyData) {
+    await prisma.frequency.create({
+      data: { orgId: org.id, ...data },
+    });
+    console.log(`  Created frequency: ${data.name} (${data.code})`);
+  }
+
+  // ============================================
+  // 4c. Create Invoice Categories (admin-configurable)
+  // ============================================
+  console.log('\nCreating invoice categories...');
+  await prisma.invoiceCategory.deleteMany({});
+  const categoryData = [
+    { code: 'INVOICE', name: 'Invoice', description: 'Standard vendor invoice', sortOrder: 1 },
+    { code: 'STATEMENT', name: 'Statement', description: 'Account statement', sortOrder: 2 },
+    { code: 'CREDIT_MEMO', name: 'Credit Memo', description: 'Credit memo or refund', sortOrder: 3 },
+    { code: 'RECEIPT', name: 'Receipt', description: 'Payment receipt', sortOrder: 4 },
+  ];
+  for (const data of categoryData) {
+    await prisma.invoiceCategory.create({
+      data: { orgId: org.id, ...data },
+    });
+    console.log(`  Created invoice category: ${data.name} (${data.code})`);
   }
 
   // ============================================
