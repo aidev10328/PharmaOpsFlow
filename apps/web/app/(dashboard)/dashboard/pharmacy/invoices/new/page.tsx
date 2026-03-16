@@ -647,16 +647,12 @@ export default function NewInvoicePage() {
 
   return (
     <div className="max-w-4xl mx-auto">
-      <div className="mb-4">
-        <Link
-          href={`/dashboard/pharmacy/invoices?pharmacyId=${formData.pharmacyId}`}
-          className="text-blue-600 hover:text-blue-800 text-sm"
-        >
-          &larr; Back to Invoices
+      <div className="flex items-center justify-between mb-4">
+        <h1 className="text-xl font-bold text-gray-900">New Invoice</h1>
+        <Link href={`/dashboard/pharmacy/invoices?pharmacyId=${formData.pharmacyId}`} className="text-xs px-3 py-1.5 rounded-md border border-gray-200 bg-white text-gray-700 font-medium hover:bg-gray-50 shadow-sm">
+          Back to Invoices
         </Link>
       </div>
-
-      <h1 className="text-xl font-bold text-gray-900 mb-4">New Invoice</h1>
 
       {/* Requirement Instance Info Box */}
       {instance && (

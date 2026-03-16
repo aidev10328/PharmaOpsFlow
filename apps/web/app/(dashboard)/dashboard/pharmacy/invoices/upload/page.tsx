@@ -400,16 +400,12 @@ export default function UploadInvoicePage() {
 
   return (
     <div className="max-w-4xl mx-auto">
-      <div className="mb-4">
-        <Link
-          href="/dashboard/pharmacy/invoices"
-          className="text-blue-600 hover:text-blue-800 text-sm"
-        >
-          ← Back to Invoices
+      <div className="flex items-center justify-between mb-4">
+        <h1 className="text-xl font-bold text-gray-900">Upload Invoice</h1>
+        <Link href="/dashboard/pharmacy/invoices" className="text-xs px-3 py-1.5 rounded-md border border-gray-200 bg-white text-gray-700 font-medium hover:bg-gray-50 shadow-sm">
+          Back to Invoices
         </Link>
       </div>
-
-      <h1 className="text-xl font-bold text-gray-900 mb-4">Upload Invoice</h1>
 
       {error && (
         <div className="mb-3 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">

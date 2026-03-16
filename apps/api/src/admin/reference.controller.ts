@@ -14,6 +14,7 @@ import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { Role } from '../common/enums/role.enum';
 import { ReferenceService } from './reference.service';
+import { NotificationPreferenceService } from './notification-preference.service';
 import {
   CreateInvoiceTypeDto,
   UpdateInvoiceTypeDto,
@@ -25,13 +26,18 @@ import {
   UpdateFrequencyDto,
   CreateInvoiceCategoryDto,
   UpdateInvoiceCategoryDto,
+  UpdateNotificationPreferenceDto,
 } from './dto';
+import { NotificationType } from '@prisma/client';
 
 @Controller('v1/admin')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(Role.ADMIN, Role.COMPANY_MANAGER)
 export class ReferenceController {
-  constructor(private readonly referenceService: ReferenceService) {}
+  constructor(
+    private readonly referenceService: ReferenceService,
+    private readonly notificationPreferenceService: NotificationPreferenceService,
+  ) {}
 
   // ===== Invoice Types =====
 
@@ -196,5 +202,23 @@ export class ReferenceController {
   @Post('invoice-categories/:id/reactivate')
   async reactivateInvoiceCategory(@Param('id') id: string, @Request() req: any) {
     return this.referenceService.reactivateInvoiceCategory(id, req.user.id);
+  }
+
+  // ===== Notification Preferences =====
+
+  @Get('notification-preferences')
+  async listNotificationPreferences(@Request() req: any) {
+    const orgId = req.user.orgId || req.user.org?.id;
+    return this.notificationPreferenceService.getPreferences(orgId);
+  }
+
+  @Patch('notification-preferences/:notificationType')
+  async updateNotificationPreference(
+    @Param('notificationType') notificationType: NotificationType,
+    @Body() dto: UpdateNotificationPreferenceDto,
+    @Request() req: any,
+  ) {
+    const orgId = req.user.orgId || req.user.org?.id;
+    return this.notificationPreferenceService.updatePreference(orgId, notificationType, dto);
   }
 }

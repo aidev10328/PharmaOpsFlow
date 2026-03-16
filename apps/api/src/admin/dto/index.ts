@@ -14,3 +14,4 @@ export * from './create-frequency.dto';
 export * from './update-frequency.dto';
 export * from './create-invoice-category.dto';
 export * from './update-invoice-category.dto';
+export * from './update-notification-preference.dto';

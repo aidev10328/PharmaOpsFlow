@@ -71,7 +71,7 @@ function SortableHeader({
   const isActive = sortConfig.field === field;
   return (
     <th
-      className={`px-3 py-2 font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100 select-none ${className}`}
+      className={`px-3 py-2 font-semibold text-gray-700 uppercase text-[11px] cursor-pointer hover:bg-gray-200 select-none ${className}`}
       onClick={() => onSort(field)}
     >
       <div className="flex items-center gap-1">
@@ -286,14 +286,14 @@ export default function InstancesPage() {
       <div className="card overflow-hidden">
         <div className="overflow-x-auto">
           <table className="min-w-full text-xs">
-            <thead className="bg-gray-50">
+            <thead className="bg-gray-100 border-b-2 border-gray-300">
               <tr>
                 <SortableHeader label="Pharmacy" field="pharmacy" sortConfig={sortConfig} onSort={handleSort} className="text-left" />
                 <SortableHeader label="Requirement" field="requirement" sortConfig={sortConfig} onSort={handleSort} className="text-left" />
                 <SortableHeader label="Period" field="period" sortConfig={sortConfig} onSort={handleSort} className="text-left" />
                 <SortableHeader label="Deadlines" field="submissionDeadline" sortConfig={sortConfig} onSort={handleSort} className="text-left hidden md:table-cell" />
                 <SortableHeader label="Status" field="status" sortConfig={sortConfig} onSort={handleSort} className="text-left" />
-                <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase">Invoice</th>
+                <th className="px-3 py-2 text-left font-semibold text-gray-700 uppercase text-[11px]">Invoice</th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-100">

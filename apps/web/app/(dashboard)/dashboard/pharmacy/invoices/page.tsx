@@ -5,6 +5,9 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { apiFetch } from '../../../../../lib/api';
 import Link from 'next/link';
+import dynamic from 'next/dynamic';
+
+const InvoiceCalendarView = dynamic(() => import('../../../../../components/invoice/InvoiceCalendarView'), { ssr: false });
 
 type Pharmacy = {
   id: string;
@@ -118,35 +121,6 @@ const getDaysUntil = (deadline: string) => {
   return Math.ceil((due.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
 };
 
-function SortableHeader({
-  label,
-  field,
-  sortConfig,
-  onSort,
-  className = '',
-}: {
-  label: string;
-  field: string;
-  sortConfig: SortConfig;
-  onSort: (field: string) => void;
-  className?: string;
-}) {
-  const isActive = sortConfig.field === field;
-  return (
-    <th
-      className={`px-2 py-2 font-semibold text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none ${className}`}
-      onClick={() => onSort(field)}
-    >
-      <div className="flex items-center gap-1">
-        {label}
-        <span className={`text-[10px] ${isActive ? 'text-primary-600' : 'text-gray-300'}`}>
-          {isActive ? (sortConfig.direction === 'asc' ? '▲' : '▼') : '▼'}
-        </span>
-      </div>
-    </th>
-  );
-}
-
 export default function PharmacyInvoicesPage() {
   const { user, loading } = useAuth();
   const router = useRouter();
@@ -167,11 +141,12 @@ export default function PharmacyInvoicesPage() {
   const [actionType, setActionType] = useState<'approve' | 'reject' | 'needs_info' | null>(null);
   const [actionNotes, setActionNotes] = useState('');
   const [actionLoading, setActionLoading] = useState(false);
+  const [viewMode, setViewMode] = useState<'list' | 'calendar'>('list');
 
   const isManager = user?.role === 'COMPANY_MANAGER' || user?.role === 'ADMIN';
 
-  // Sorting state
-  const [sortConfig, setSortConfig] = useState<SortConfig>({ field: 'dueDate', direction: 'asc' });
+  // Default sort by due date
+  const sortConfig: SortConfig = { field: 'dueDate', direction: 'asc' };
 
   // Stats for current month
   const [stats, setStats] = useState({
@@ -237,7 +212,8 @@ export default function PharmacyInvoicesPage() {
       const monthStart = new Date(year, month - 1, 1).toISOString().split('T')[0];
       const monthEnd = new Date(year, month, 0).toISOString().split('T')[0];
 
-      let url = `/invoices?pharmacyId=${selectedPharmacyId}&page=${page}&limit=10`;
+      const fetchLimit = viewMode === 'calendar' ? 200 : 10;
+      let url = `/invoices?pharmacyId=${selectedPharmacyId}&page=${page}&limit=${fetchLimit}`;
       url += `&invoiceDateFrom=${monthStart}&invoiceDateTo=${monthEnd}`;
       if (statusFilter && statusFilter !== 'PENDING_UPLOAD' && statusFilter !== 'OVERDUE_INSTANCE') {
         url += `&status=${statusFilter}`;
@@ -287,20 +263,13 @@ export default function PharmacyInvoicesPage() {
     } finally {
       setLoadingData(false);
     }
-  }, [selectedPharmacyId, monthFilter, statusFilter, isManager]);
+  }, [selectedPharmacyId, monthFilter, statusFilter, isManager, viewMode]);
 
   useEffect(() => {
     if (selectedPharmacyId) {
       fetchData();
     }
   }, [selectedPharmacyId, monthFilter, statusFilter, fetchData]);
-
-  const handleSort = (field: string) => {
-    setSortConfig(prev => ({
-      field,
-      direction: prev.field === field && prev.direction === 'asc' ? 'desc' : 'asc',
-    }));
-  };
 
   const formatCurrency = (amount: string | number) => {
     return new Intl.NumberFormat('en-US', {
@@ -505,31 +474,31 @@ export default function PharmacyInvoicesPage() {
         : [];
 
   return (
-    <div className="max-w-7xl mx-auto space-y-6">
+    <div className="max-w-7xl mx-auto space-y-3">
       {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      <div className="flex items-center justify-between">
         <div>
-          <h1 className="page-title">Invoices</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Manage invoices for {selectedPharmacy?.name || 'your pharmacy'}
+          <h1 className="text-lg font-bold text-gray-900">Invoices</h1>
+          <p className="text-xs text-gray-500">
+            {selectedPharmacy?.name || 'Your pharmacy'}
           </p>
         </div>
         {!isManager && (
           <div className="flex items-center gap-2">
             <Link
               href={`/dashboard/pharmacy/invoices/new?pharmacyId=${selectedPharmacyId}`}
-              className="inline-flex items-center justify-center px-4 py-2 rounded-lg text-white text-sm font-semibold bg-emerald-600 hover:bg-emerald-700 transition-all shadow-sm gap-1.5"
+              className="inline-flex items-center justify-center px-3 py-1.5 rounded-lg text-white text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 transition-all shadow-sm gap-1 h-8"
             >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
               </svg>
               New Invoice
             </Link>
             <Link
               href={`/dashboard/pharmacy/invoices/bulk-upload?pharmacyId=${selectedPharmacyId}`}
-              className="btn-primary gap-1.5"
+              className="btn-primary text-xs px-3 py-1.5 gap-1 h-8"
             >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
               </svg>
               Bulk Upload
@@ -539,12 +508,12 @@ export default function PharmacyInvoicesPage() {
       </div>
 
       {/* Filters Row */}
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="flex flex-wrap items-center gap-2">
         {pharmacies.length > 1 && (
           <select
             value={selectedPharmacyId}
             onChange={(e) => setSelectedPharmacyId(e.target.value)}
-            className="input-field max-w-[200px] !py-2"
+            className="input-field max-w-[200px] text-xs !py-1.5"
           >
             {pharmacies.map((pharmacy) => (
               <option key={pharmacy.id} value={pharmacy.id}>
@@ -553,422 +522,566 @@ export default function PharmacyInvoicesPage() {
             ))}
           </select>
         )}
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-gray-500">Month:</span>
+        <div className="flex items-center gap-1.5">
+          <span className="text-xs text-gray-500">Month:</span>
           <input
             type="month"
             value={monthFilter}
             onChange={(e) => setMonthFilter(e.target.value)}
-            className="input-field !py-2 !w-auto"
+            className="input-field text-xs !py-1.5 !w-auto"
           />
+        </div>
+
+        {/* View Toggle */}
+        <div className="flex items-center bg-gray-100 rounded-lg p-0.5 ml-auto">
+          <button
+            onClick={() => setViewMode('list')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+              viewMode === 'list' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h16M4 18h16" />
+            </svg>
+            List
+          </button>
+          <button
+            onClick={() => setViewMode('calendar')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+              viewMode === 'calendar' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+            </svg>
+            Calendar
+          </button>
         </div>
       </div>
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+      {/* Stats Cards - Compact */}
+      <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5">
         <button
           onClick={() => setStatusFilter('')}
-          className={`card p-2.5 text-left transition-all ${!statusFilter ? 'ring-2 ring-primary-500 bg-primary-50' : 'hover:bg-gray-50'}`}
+          className={`card p-2 text-left transition-all ${!statusFilter ? 'ring-2 ring-primary-500 bg-primary-50' : 'hover:bg-gray-50'}`}
         >
-          <div className="text-lg font-bold text-gray-900">{stats.total}</div>
+          <div className="text-base font-bold text-gray-900">{stats.total}</div>
           <div className="text-[10px] text-gray-500">Total</div>
         </button>
         <button
           onClick={() => setStatusFilter('PENDING_UPLOAD')}
-          className={`card p-2.5 text-left transition-all border-yellow-200 ${statusFilter === 'PENDING_UPLOAD' ? 'ring-2 ring-yellow-500 bg-yellow-50' : (stats.pendingUpload > 0 ? 'bg-yellow-50' : 'hover:bg-gray-50')}`}
+          className={`card p-2 text-left transition-all border-yellow-200 ${statusFilter === 'PENDING_UPLOAD' ? 'ring-2 ring-yellow-500 bg-yellow-50' : (stats.pendingUpload > 0 ? 'bg-yellow-50' : 'hover:bg-gray-50')}`}
         >
-          <div className="text-lg font-bold text-yellow-600">{stats.pendingUpload}</div>
-          <div className="text-[10px] text-yellow-700">Pending Upload</div>
+          <div className="text-base font-bold text-yellow-600">{stats.pendingUpload}</div>
+          <div className="text-[10px] text-yellow-700">Pending</div>
         </button>
         <button
           onClick={() => setStatusFilter('OVERDUE_INSTANCE')}
-          className={`card p-2.5 text-left transition-all ${
+          className={`card p-2 text-left transition-all ${
             stats.overdue > 0
               ? `!border-2 !border-red-400 !bg-red-600 text-white shadow-lg ${statusFilter === 'OVERDUE_INSTANCE' ? 'ring-2 ring-red-300' : 'animate-pulse'}`
               : `!border-2 !border-red-300 !bg-red-50 ${statusFilter === 'OVERDUE_INSTANCE' ? 'ring-2 ring-red-500' : 'hover:!bg-red-100'}`
           }`}
         >
           <div className="flex items-center gap-1">
-            <svg className={`w-3.5 h-3.5 ${stats.overdue > 0 ? 'text-white' : 'text-red-400'}`} fill="currentColor" viewBox="0 0 20 20">
+            <svg className={`w-3 h-3 ${stats.overdue > 0 ? 'text-white' : 'text-red-400'}`} fill="currentColor" viewBox="0 0 20 20">
               <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
             </svg>
-            <div className={`text-lg font-bold ${stats.overdue > 0 ? 'text-white' : 'text-red-600'}`}>{stats.overdue}</div>
+            <div className={`text-base font-bold ${stats.overdue > 0 ? 'text-white' : 'text-red-600'}`}>{stats.overdue}</div>
           </div>
           <div className={`text-[10px] font-semibold ${stats.overdue > 0 ? 'text-red-100' : 'text-red-600'}`}>Overdue</div>
         </button>
         {!isManager && (
           <button
             onClick={() => setStatusFilter('DRAFT')}
-            className={`card p-2.5 text-left transition-all ${statusFilter === 'DRAFT' ? 'ring-2 ring-slate-400 bg-slate-50' : 'hover:bg-gray-50'}`}
+            className={`card p-2 text-left transition-all ${statusFilter === 'DRAFT' ? 'ring-2 ring-slate-400 bg-slate-50' : 'hover:bg-gray-50'}`}
           >
-            <div className="text-lg font-bold text-slate-600">{stats.draft}</div>
+            <div className="text-base font-bold text-slate-600">{stats.draft}</div>
             <div className="text-[10px] text-gray-500">Draft</div>
           </button>
         )}
         <button
           onClick={() => setStatusFilter('SUBMITTED')}
-          className={`card p-2.5 text-left transition-all ${statusFilter === 'SUBMITTED' ? 'ring-2 ring-blue-500 bg-blue-50' : 'hover:bg-gray-50'}`}
+          className={`card p-2 text-left transition-all ${statusFilter === 'SUBMITTED' ? 'ring-2 ring-blue-500 bg-blue-50' : 'hover:bg-gray-50'}`}
         >
-          <div className="text-lg font-bold text-blue-600">{stats.submitted}</div>
+          <div className="text-base font-bold text-blue-600">{stats.submitted}</div>
           <div className="text-[10px] text-gray-500">Submitted</div>
         </button>
         <button
           onClick={() => setStatusFilter('PAID')}
-          className={`card p-2.5 text-left transition-all ${statusFilter === 'PAID' ? 'ring-2 ring-green-500 bg-green-50' : 'hover:bg-gray-50'}`}
+          className={`card p-2 text-left transition-all ${statusFilter === 'PAID' ? 'ring-2 ring-green-500 bg-green-50' : 'hover:bg-gray-50'}`}
         >
-          <div className="text-lg font-bold text-green-600">{stats.paid}</div>
+          <div className="text-base font-bold text-green-600">{stats.paid}</div>
           <div className="text-[10px] text-gray-500">Paid</div>
         </button>
       </div>
 
-      {/* Invoice List */}
-      <div className="card overflow-hidden">
-        {loadingData ? (
-          <div className="flex items-center justify-center py-16">
-            <div className="flex items-center gap-3 text-gray-400">
-              <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
+      {/* Calendar View */}
+      {viewMode === 'calendar' && (
+        <InvoiceCalendarView
+          invoices={sortedInvoices}
+          pendingInstances={filteredPendingInstances}
+          monthFilter={monthFilter}
+          selectedPharmacyId={selectedPharmacyId}
+          isManager={isManager}
+          formatCurrency={formatCurrency}
+          onMonthChange={setMonthFilter}
+        />
+      )}
+
+      {/* Invoice List - Two Panel Card Layout */}
+      {viewMode === 'list' && (
+        loadingData ? (
+          <div className="flex items-center justify-center py-12">
+            <div className="flex items-center gap-2 text-gray-400">
+              <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
               </svg>
-              <span className="text-sm">Loading invoices...</span>
+              <span className="text-xs">Loading invoices...</span>
             </div>
           </div>
         ) : filteredPendingInstances.length === 0 && sortedInvoices.length === 0 ? (
-          <div className="py-16 text-center">
-            <div className="text-gray-300 mb-4">
-              <svg className="w-12 h-12 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-              </svg>
-            </div>
+          <div className="card py-12 text-center">
+            <svg className="w-10 h-10 mx-auto text-gray-200 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
             <h3 className="text-sm font-semibold text-gray-900 mb-1">No invoices for this month</h3>
-            <p className="text-sm text-gray-500 mb-4">
+            <p className="text-xs text-gray-500">
               {statusFilter ? 'No invoices match the selected filter.' : 'No pending requirements or invoices for this period.'}
             </p>
           </div>
-        ) : (
-          <>
-            <div className="overflow-x-auto">
-              <table className="min-w-full text-xs">
-                <thead>
-                  <tr className="bg-slate-50 border-b border-gray-200">
-                    <th className="px-2 py-2 text-left font-semibold text-gray-500 uppercase tracking-wider">
-                      Ref
-                    </th>
-                    <SortableHeader label="Invoice #" field="invoiceNumber" sortConfig={sortConfig} onSort={handleSort} className="text-left" />
-                    <SortableHeader label="Account #" field="accountNumber" sortConfig={sortConfig} onSort={handleSort} className="text-left hidden lg:table-cell" />
-                    <SortableHeader label="Vendor" field="vendor" sortConfig={sortConfig} onSort={handleSort} className="text-left" />
-                    <SortableHeader label="Inv Date" field="invoiceDate" sortConfig={sortConfig} onSort={handleSort} className="text-left hidden md:table-cell" />
-                    <SortableHeader label="Due Date" field="dueDate" sortConfig={sortConfig} onSort={handleSort} className="text-left hidden sm:table-cell" />
-                    <SortableHeader label="Amount" field="amount" sortConfig={sortConfig} onSort={handleSort} className="text-right" />
-                    <SortableHeader label="Status" field="status" sortConfig={sortConfig} onSort={handleSort} className="text-left" />
-                    <th className="px-2 py-2 text-right font-semibold text-gray-500 uppercase tracking-wider">
-                      Actions
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {/* Pending Requirement Instances (hidden from managers) */}
-                  {!isManager && filteredPendingInstances.map((instance) => {
-                    const daysUntil = getDaysUntil(instance.submissionDeadline);
-                    const isOverdueInstance = instance.status === 'OVERDUE' || daysUntil < 0;
-                    const isUrgent = daysUntil <= 3 && daysUntil >= 0;
+        ) : (() => {
+          const actionItems = [
+            ...(!isManager ? filteredPendingInstances.map(inst => ({ type: 'instance' as const, data: inst })) : []),
+            ...sortedInvoices
+              .filter(inv => (!isManager || inv.status !== 'DRAFT') && ['NEEDS_INFO'].includes(inv.status))
+              .map(inv => ({ type: 'invoice' as const, data: inv })),
+          ];
+          const inProgressItems = sortedInvoices
+            .filter(inv => (!isManager || inv.status !== 'DRAFT') && ['DRAFT', 'SUBMITTED', 'APPROVED', 'SCHEDULED'].includes(inv.status))
+            .map(inv => ({ type: 'invoice' as const, data: inv }));
+          const completedItems = sortedInvoices
+            .filter(inv => (!isManager || inv.status !== 'DRAFT') && ['PAID', 'REJECTED'].includes(inv.status))
+            .map(inv => ({ type: 'invoice' as const, data: inv }));
 
-                    return (
-                      <tr
-                        key={`instance-${instance.id}`}
-                        className={`transition-colors ${isOverdueInstance ? 'bg-red-50/60' : isUrgent ? 'bg-yellow-50/50' : 'bg-white hover:bg-slate-50/50'}`}
-                      >
-                        <td className="px-2 py-2">
-                          <div className="flex items-center gap-1 group relative">
-                            <span className="font-medium text-gray-900 truncate max-w-[120px]">
-                              {instance.requirement.name}
-                            </span>
-                            <span className="inline-flex items-center px-1 py-0.5 rounded text-[8px] font-semibold bg-yellow-100 text-yellow-700 flex-shrink-0">
-                              REQ
-                            </span>
-                            <div className="hidden group-hover:block absolute left-0 bottom-full mb-1 z-20 px-2 py-1 bg-gray-900 text-white text-[10px] rounded shadow-lg whitespace-nowrap max-w-[300px]">
-                              {instance.requirement.name}
-                              <span className="text-gray-400 ml-1">({instance.periodLabel})</span>
-                            </div>
-                          </div>
-                          <div className="text-[10px] text-gray-500">{instance.periodLabel}</div>
-                        </td>
-                        <td className="px-2 py-2">
-                          <span className="text-gray-400 italic">-</span>
-                        </td>
-                        <td className="px-2 py-2 hidden lg:table-cell">
-                          <span className="text-gray-400 italic">-</span>
-                        </td>
-                        <td className="px-2 py-2">
-                          <span className="text-gray-900 truncate max-w-[100px] block">
-                            {instance.requirement.vendor?.name || <span className="text-gray-400 italic">Any</span>}
-                          </span>
-                        </td>
-                        <td className="px-2 py-2 hidden md:table-cell">
-                          <span className="text-gray-400 italic">-</span>
-                        </td>
-                        <td className="px-2 py-2 hidden sm:table-cell">
-                          <div className={`${isOverdueInstance ? 'text-red-600 font-medium' : isUrgent ? 'text-orange-600 font-medium' : 'text-gray-600'}`}>
-                            {formatDate(instance.submissionDeadline)}
-                            {isOverdueInstance && <span className="ml-1 text-[9px] font-bold text-red-700 bg-red-100 px-1 rounded">{daysUntil}d</span>}
-                            {isUrgent && !isOverdueInstance && <span className="ml-1 text-[9px]">({daysUntil}d)</span>}
-                          </div>
-                        </td>
-                        <td className="px-2 py-2 text-right">
-                          <span className="text-gray-400 italic">-</span>
-                        </td>
-                        <td className="px-2 py-2">
-                          <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold ${isOverdueInstance ? STATUS_COLORS.OVERDUE : STATUS_COLORS.PENDING_UPLOAD}`}>
-                            <span className={`w-1 h-1 rounded-full ${isOverdueInstance ? STATUS_DOTS.OVERDUE : STATUS_DOTS.PENDING_UPLOAD}`} />
-                            {isOverdueInstance ? 'OVERDUE' : 'PENDING'}
-                          </span>
-                        </td>
-                        <td className="px-2 py-2 text-right">
-                          <div className="flex items-center justify-end gap-1">
-                            <Link
-                              href={`/dashboard/pharmacy/invoices/new?pharmacyId=${selectedPharmacyId}&instanceId=${instance.id}`}
-                              className="text-[10px] font-medium text-white bg-primary-600 hover:bg-primary-700 px-2 py-1 rounded transition-colors inline-flex items-center gap-1"
-                              title="Upload or enter invoice"
-                            >
-                              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
-                              </svg>
-                              Upload
-                            </Link>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
+          return (
+            <div className="card p-0 overflow-hidden">
+              <div className="grid grid-cols-1 lg:grid-cols-2 divide-y lg:divide-y-0 lg:divide-x divide-gray-200">
+              {/* Left Panel - Action Required */}
+              <div className="p-3 space-y-2">
+                <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                  <div className="w-2 h-2 rounded-full bg-amber-500" />
+                  <h3 className="text-xs font-bold text-amber-800 uppercase tracking-wider">Action Required</h3>
+                  <span className="text-[10px] text-white bg-amber-500 px-1.5 py-0.5 rounded-full font-bold">{actionItems.length}</span>
+                </div>
 
-                  {/* Regular Invoices */}
-                  {sortedInvoices.filter(inv => !isManager || inv.status !== 'DRAFT').map((invoice) => {
-                    const linkedInstance = invoice.requirementInstances?.[0];
-                    const hasLinkedInstance = !!linkedInstance;
-
-                    return (
-                    <tr key={invoice.id} className="hover:bg-slate-50/50 transition-colors">
-                      {/* Ref - show requirement name if linked */}
-                      <td className="px-2 py-2">
-                        {linkedInstance ? (
-                          <div className="flex items-center gap-1 group relative">
-                            <span className="font-medium text-gray-900 truncate max-w-[120px]">
-                              {linkedInstance.requirement.name}
-                            </span>
-                            <span className="inline-flex items-center px-1 py-0.5 rounded text-[8px] font-semibold bg-blue-100 text-blue-700 flex-shrink-0">
-                              REQ
-                            </span>
-                            <div className="hidden group-hover:block absolute left-0 bottom-full mb-1 z-20 px-2 py-1 bg-gray-900 text-white text-[10px] rounded shadow-lg whitespace-nowrap max-w-[300px]">
-                              {linkedInstance.requirement.name}
-                              <span className="text-gray-400 ml-1">({linkedInstance.periodLabel})</span>
-                            </div>
-                          </div>
-                        ) : (
-                          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-medium bg-gray-100 text-gray-600">
-                            New Invoice
-                          </span>
-                        )}
-                      </td>
-                      {/* Invoice # */}
-                      <td className="px-2 py-2">
-                        <div className="flex items-center gap-1">
-                          <span className="font-medium text-gray-900">
-                            {invoice.invoiceNumber || <span className="text-gray-400 italic font-normal">Draft</span>}
-                          </span>
-                          {invoice.entryMethod === 'AI_EXTRACTION' ? (
-                            <span className="inline-flex items-center px-1 py-0.5 rounded text-[9px] font-semibold bg-violet-50 text-violet-600" title="AI extraction">
-                              AI
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center px-1 py-0.5 rounded text-[9px] font-semibold bg-gray-100 text-gray-500" title="Manual entry">
-                              M
-                            </span>
-                          )}
-                        </div>
-                      </td>
-                      {/* Account # */}
-                      <td className="px-2 py-2 hidden lg:table-cell">
-                        <span className="text-gray-600">
-                          {invoice.accountNumber || <span className="text-gray-400 italic">-</span>}
-                        </span>
-                      </td>
-                      {/* Vendor */}
-                      <td className="px-2 py-2">
-                        <span className="text-gray-900 truncate max-w-[100px] block">
-                          {invoice.vendor?.name || <span className="text-gray-400 italic">Not set</span>}
-                        </span>
-                      </td>
-                      {/* Invoice Date */}
-                      <td className="px-2 py-2 hidden md:table-cell">
-                        <span className="text-gray-600">
-                          {invoice.invoiceDate ? formatDate(invoice.invoiceDate) : <span className="text-gray-400 italic">-</span>}
-                        </span>
-                      </td>
-                      {/* Due Date */}
-                      <td className="px-2 py-2 hidden sm:table-cell">
-                        <div className={`${invoice.dueDate && isOverdue(invoice.dueDate, invoice.status) ? 'text-red-600 font-medium' : 'text-gray-600'}`}>
-                          {invoice.dueDate ? formatDate(invoice.dueDate) : <span className="text-gray-400">-</span>}
-                          {invoice.dueDate && isOverdue(invoice.dueDate, invoice.status) && (
-                            <span className="ml-1 text-[9px] font-bold text-red-600">!</span>
-                          )}
-                        </div>
-                      </td>
-                      {/* Amount */}
-                      <td className="px-2 py-2 text-right">
-                        <span className="font-medium text-gray-900 tabular-nums">
-                          {invoice.amount != null ? formatCurrency(invoice.amount) : <span className="text-gray-400 font-normal">-</span>}
-                        </span>
-                      </td>
-                      {/* Status */}
-                      <td className="px-2 py-2">
-                        <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold ${STATUS_COLORS[invoice.status] || 'bg-gray-100 text-gray-700'}`}>
-                          <span className={`w-1 h-1 rounded-full ${STATUS_DOTS[invoice.status] || 'bg-gray-400'}`} />
-                          {invoice.status.replace('_', ' ')}
-                        </span>
-                      </td>
-                      {/* Actions */}
-                      <td className="px-2 py-2 text-right">
-                        <div className="flex items-center justify-end gap-0.5">
-                          {invoice.files && invoice.files.length > 0 && (
-                            <button
-                              onClick={async () => {
-                                try {
-                                  const res = await apiFetch(`/invoice-files/${invoice.files[0].id}/download`);
-                                  if (!res.ok) throw new Error('Download failed');
-                                  const blob = await res.blob();
-                                  const url = URL.createObjectURL(blob);
-                                  window.open(url, '_blank');
-                                } catch {
-                                  alert('Failed to download file');
-                                }
-                              }}
-                              className="p-1 rounded text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
-                              title={`View ${invoice.files[0].originalName}`}
-                            >
-                              <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
-                                <path fillRule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm2 6a1 1 0 011-1h6a1 1 0 110 2H7a1 1 0 01-1-1zm1 3a1 1 0 100 2h6a1 1 0 100-2H7z" clipRule="evenodd" />
-                              </svg>
-                            </button>
-                          )}
-                          <Link
-                            href={`/dashboard/pharmacy/invoices/${invoice.id}`}
-                            className="text-[11px] font-medium text-primary-600 hover:text-primary-800 px-1.5 py-0.5 rounded hover:bg-primary-50 transition-colors"
+                {actionItems.length === 0 ? (
+                  <div className="card p-4 text-center border-dashed">
+                    <svg className="w-6 h-6 mx-auto text-emerald-300 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <p className="text-[11px] text-gray-400">All caught up!</p>
+                  </div>
+                ) : (
+                  <div className="space-y-1.5">
+                    {actionItems.map((item) => {
+                      if (item.type === 'instance') {
+                        const inst = item.data as RequirementInstance;
+                        const daysUntil = getDaysUntil(inst.submissionDeadline);
+                        const isOverdueInstance = inst.status === 'OVERDUE' || daysUntil < 0;
+                        const isUrgent = daysUntil <= 3 && daysUntil >= 0;
+                        return (
+                          <div
+                            key={`inst-${inst.id}`}
+                            className={`border-b border-gray-100 last:border-b-0 border-l-[3px] transition-all hover:bg-gray-50/50 ${
+                              isOverdueInstance ? 'border-l-red-500 bg-red-50/30' : isUrgent ? 'border-l-orange-400 bg-orange-50/20' : 'border-l-yellow-400'
+                            }`}
                           >
-                            {['DRAFT', 'NEEDS_INFO'].includes(invoice.status) ? 'Edit' : 'View'}
-                          </Link>
-                          {/* Manager actions for SUBMITTED invoices */}
-                          {isManager && invoice.status === 'SUBMITTED' && (
-                            <>
-                              <button
-                                onClick={() => { setActionInvoiceId(invoice.id); setActionType('approve'); setActionNotes(''); }}
-                                className="text-[11px] font-medium text-green-600 hover:text-green-800 px-1.5 py-0.5 rounded hover:bg-green-50 transition-colors"
-                                title="Approve"
-                              >
-                                Approve
-                              </button>
-                              <button
-                                onClick={() => { setActionInvoiceId(invoice.id); setActionType('reject'); setActionNotes(''); }}
-                                className="text-[11px] font-medium text-red-600 hover:text-red-800 px-1.5 py-0.5 rounded hover:bg-red-50 transition-colors"
-                                title="Reject"
-                              >
-                                Reject
-                              </button>
-                              <button
-                                onClick={() => { setActionInvoiceId(invoice.id); setActionType('needs_info'); setActionNotes(''); }}
-                                className="text-[11px] font-medium text-amber-600 hover:text-amber-800 px-1.5 py-0.5 rounded hover:bg-amber-50 transition-colors"
-                                title="Request more info"
-                              >
-                                Info?
-                              </button>
-                            </>
-                          )}
-                          {/* Pharmacy user actions */}
-                          {!isManager && invoice.status === 'DRAFT' && (
-                            <button
-                              onClick={() => handleSubmitDraft(invoice.id)}
-                              disabled={submittingId === invoice.id}
-                              className="text-[11px] font-medium text-green-600 hover:text-green-800 px-1.5 py-0.5 rounded hover:bg-green-50 transition-colors disabled:opacity-50"
-                              title="Submit for approval"
-                            >
-                              {submittingId === invoice.id ? '...' : 'Submit'}
-                            </button>
-                          )}
-                          {!isManager && invoice.status === 'DRAFT' && !hasLinkedInstance && (
-                            <div className="relative">
-                              <button
-                                onClick={() => setConfirmDeleteId(confirmDeleteId === invoice.id ? null : invoice.id)}
-                                disabled={deletingId === invoice.id}
-                                className="p-1 rounded text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors disabled:opacity-50"
-                                title="Delete draft"
-                              >
-                                {deletingId === invoice.id ? (
-                                  <svg className="animate-spin w-3.5 h-3.5" viewBox="0 0 24 24">
-                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                                  </svg>
-                                ) : (
-                                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                  </svg>
+                            <div className="flex items-center gap-3 px-3 py-2.5">
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-1.5 mb-0.5">
+                                  <span className="text-[11px] font-semibold text-gray-900 truncate">{inst.requirement.name}</span>
+                                  <span className="inline-flex items-center px-1 py-0.5 rounded text-[8px] font-bold bg-yellow-100 text-yellow-700 flex-shrink-0">REQ</span>
+                                </div>
+                                <div className="flex items-center gap-2 text-[10px] text-gray-500">
+                                  <span>{inst.requirement.vendor?.name || 'Any vendor'}</span>
+                                  <span className="text-gray-300">|</span>
+                                  <span>{inst.periodLabel}</span>
+                                </div>
+                              </div>
+                              <div className="flex items-center flex-shrink-0">
+                                <div className="w-24 text-right mr-3">
+                                  <div className={`text-[10px] font-medium ${isOverdueInstance ? 'text-red-600' : isUrgent ? 'text-orange-600' : 'text-gray-500'}`}>
+                                    {formatDate(inst.submissionDeadline)}
+                                  </div>
+                                  {isOverdueInstance && (
+                                    <span className="text-[9px] font-bold text-red-600 bg-red-100 px-1 rounded">{daysUntil}d overdue</span>
+                                  )}
+                                  {isUrgent && !isOverdueInstance && (
+                                    <span className="text-[9px] font-medium text-orange-600">{daysUntil}d left</span>
+                                  )}
+                                </div>
+                                <div className="w-20 flex items-center justify-end gap-0.5">
+                                  <Link
+                                    href={`/dashboard/pharmacy/invoices/new?pharmacyId=${selectedPharmacyId}&instanceId=${inst.id}`}
+                                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md text-[10px] font-semibold text-white bg-primary-600 hover:bg-primary-700 transition-colors shadow-sm"
+                                  >
+                                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                                    </svg>
+                                    Upload
+                                  </Link>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      } else {
+                        const inv = item.data as Invoice;
+                        const linkedInstance = inv.requirementInstances?.[0];
+                        const hasLinkedInstance = !!linkedInstance;
+                        return (
+                          <div
+                            key={inv.id}
+                            className={`border-b border-gray-100 last:border-b-0 border-l-[3px] transition-all hover:bg-gray-50/50 ${
+                              inv.status === 'NEEDS_INFO' ? 'border-l-amber-500 bg-amber-50/20' : 'border-l-slate-300'
+                            }`}
+                          >
+                            <div className="flex items-center gap-3 px-3 py-2.5">
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-1.5 mb-0.5">
+                                  <span className="text-[11px] font-semibold text-gray-900 truncate">
+                                    {inv.vendor?.name || 'Unknown Vendor'}
+                                  </span>
+                                  {inv.entryMethod === 'AI_EXTRACTION' && (
+                                    <span className="inline-flex items-center px-1 py-0.5 rounded text-[8px] font-bold bg-violet-50 text-violet-600 flex-shrink-0">AI</span>
+                                  )}
+                                  <span className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[9px] font-semibold flex-shrink-0 ${STATUS_COLORS[inv.status] || 'bg-gray-100 text-gray-700'}`}>
+                                    <span className={`w-1 h-1 rounded-full ${STATUS_DOTS[inv.status] || 'bg-gray-400'}`} />
+                                    {inv.status === 'NEEDS_INFO' ? 'Needs Info' : 'Draft'}
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-2 text-[10px] text-gray-500">
+                                  <span>{inv.invoiceNumber || 'No number'}</span>
+                                  {inv.dueDate && (
+                                    <>
+                                      <span className="text-gray-300">|</span>
+                                      <span>Due {formatDate(inv.dueDate)}</span>
+                                    </>
+                                  )}
+                                  {linkedInstance && (
+                                    <>
+                                      <span className="text-gray-300">|</span>
+                                      <span className="text-blue-600">{linkedInstance.requirement.name}</span>
+                                    </>
+                                  )}
+                                </div>
+                              </div>
+                              <div className="flex items-center flex-shrink-0 ml-2">
+                                <span className="text-xs font-bold text-gray-900 tabular-nums w-24 text-right">{inv.amount != null ? formatCurrency(inv.amount) : ''}</span>
+                                <div className="w-7 flex items-center justify-center ml-2">
+                                  {inv.files && inv.files.length > 0 && (
+                                    <button
+                                      onClick={async () => {
+                                        try {
+                                          const res = await apiFetch(`/invoice-files/${inv.files[0].id}/download`);
+                                          if (!res.ok) throw new Error('Download failed');
+                                          const blob = await res.blob();
+                                          const url = URL.createObjectURL(blob);
+                                          window.open(url, '_blank');
+                                        } catch { alert('Failed to download file'); }
+                                      }}
+                                      className="p-1 rounded text-gray-400 hover:text-primary-600 hover:bg-primary-50 transition-colors"
+                                      title="View file"
+                                    >
+                                      <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
+                                        <path fillRule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm2 6a1 1 0 011-1h6a1 1 0 110 2H7a1 1 0 01-1-1zm1 3a1 1 0 100 2h6a1 1 0 100-2H7z" clipRule="evenodd" />
+                                      </svg>
+                                    </button>
+                                  )}
+                                </div>
+                                <div className="w-8 flex items-center justify-center">
+                                  <Link
+                                    href={`/dashboard/pharmacy/invoices/${inv.id}`}
+                                    className="inline-flex items-center px-1 py-1 rounded-md text-[10px] font-medium text-primary-600 hover:bg-primary-50 transition-colors"
+                                  >
+                                    Edit
+                                  </Link>
+                                </div>
+                                <div className="w-14 flex items-center justify-center">
+                                  {!isManager && inv.status === 'DRAFT' && (
+                                    <button
+                                      onClick={() => handleSubmitDraft(inv.id)}
+                                      disabled={submittingId === inv.id}
+                                      className="inline-flex items-center px-2 py-1 rounded-md text-[10px] font-semibold text-white bg-emerald-600 hover:bg-emerald-700 transition-colors disabled:opacity-50"
+                                    >
+                                      {submittingId === inv.id ? '...' : 'Submit'}
+                                    </button>
+                                  )}
+                                </div>
+                                <div className="w-7 flex items-center justify-center relative">
+                                  {!isManager && inv.status === 'DRAFT' && !hasLinkedInstance && (
+                                    <>
+                                      <button
+                                        onClick={() => setConfirmDeleteId(confirmDeleteId === inv.id ? null : inv.id)}
+                                        disabled={deletingId === inv.id}
+                                        className="p-1 rounded text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors disabled:opacity-50"
+                                        title="Delete draft"
+                                      >
+                                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                        </svg>
+                                      </button>
+                                      {confirmDeleteId === inv.id && (
+                                        <div className="absolute right-0 top-full mt-1 z-30 bg-white border border-red-200 rounded-lg shadow-lg p-3 w-48">
+                                          <p className="text-xs text-gray-700 mb-2">Delete this draft?</p>
+                                          <div className="flex items-center gap-2">
+                                            <button onClick={() => handleDeleteDraft(inv.id)} className="text-[11px] font-medium text-white bg-red-600 hover:bg-red-700 px-2.5 py-1 rounded transition-colors">Delete</button>
+                                            <button onClick={() => setConfirmDeleteId(null)} className="text-[11px] font-medium text-gray-600 hover:text-gray-800 px-2.5 py-1 rounded border border-gray-200 hover:bg-gray-50 transition-colors">Cancel</button>
+                                          </div>
+                                        </div>
+                                      )}
+                                    </>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      }
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Right Panel - In Progress & Completed */}
+              <div className="p-3 space-y-2">
+                <div className="flex items-center gap-2 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">
+                  <div className="w-2 h-2 rounded-full bg-blue-500" />
+                  <h3 className="text-xs font-bold text-blue-800 uppercase tracking-wider">In Progress</h3>
+                  <span className="text-[10px] text-white bg-blue-500 px-1.5 py-0.5 rounded-full font-bold">{inProgressItems.length}</span>
+                </div>
+
+                {inProgressItems.length === 0 && completedItems.length === 0 ? (
+                  <div className="card p-4 text-center border-dashed">
+                    <p className="text-[11px] text-gray-400">No invoices submitted yet</p>
+                  </div>
+                ) : (
+                  <div className="space-y-1.5">
+                    {inProgressItems.map(({ data: inv }) => {
+                      const invoice = inv as Invoice;
+                      const linkedInstance = invoice.requirementInstances?.[0];
+                      const hasLinkedInstance = !!linkedInstance;
+                      const statusLabel = invoice.status === 'DRAFT' ? 'Draft' : invoice.status === 'SUBMITTED' ? 'Submitted' : invoice.status === 'APPROVED' ? 'Approved' : 'Scheduled';
+                      return (
+                        <div
+                          key={invoice.id}
+                          className={`border-b border-gray-100 last:border-b-0 border-l-[3px] transition-all hover:bg-gray-50/50 ${
+                            invoice.status === 'DRAFT' ? 'border-l-slate-400' :
+                            invoice.status === 'SUBMITTED' ? 'border-l-blue-500' :
+                            invoice.status === 'APPROVED' ? 'border-l-emerald-500' :
+                            'border-l-violet-500'
+                          }`}
+                        >
+                          <div className="flex items-center gap-3 px-3 py-2.5">
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-1.5 mb-0.5">
+                                <span className="text-[11px] font-semibold text-gray-900 truncate">
+                                  {invoice.vendor?.name || 'Unknown Vendor'}
+                                </span>
+                                {invoice.entryMethod === 'AI_EXTRACTION' && (
+                                  <span className="inline-flex items-center px-1 py-0.5 rounded text-[8px] font-bold bg-violet-50 text-violet-600 flex-shrink-0">AI</span>
                                 )}
-                              </button>
-                              {confirmDeleteId === invoice.id && (
-                                <div className="absolute right-0 top-full mt-1 z-30 bg-white border border-red-200 rounded-lg shadow-lg p-3 w-48">
-                                  <p className="text-xs text-gray-700 mb-2">Delete this draft invoice?</p>
-                                  <div className="flex items-center gap-2">
+                                <span className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[9px] font-semibold flex-shrink-0 ${STATUS_COLORS[invoice.status] || 'bg-gray-100 text-gray-700'}`}>
+                                  <span className={`w-1 h-1 rounded-full ${STATUS_DOTS[invoice.status] || 'bg-gray-400'}`} />
+                                  {statusLabel}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-2 text-[10px] text-gray-500">
+                                <span>{invoice.invoiceNumber || 'No number'}</span>
+                                {invoice.dueDate && (
+                                  <>
+                                    <span className="text-gray-300">|</span>
+                                    <span className={`${isOverdue(invoice.dueDate, invoice.status) ? 'text-red-500 font-medium' : ''}`}>
+                                      Due {formatDate(invoice.dueDate)}
+                                    </span>
+                                  </>
+                                )}
+                                {linkedInstance && (
+                                  <>
+                                    <span className="text-gray-300">|</span>
+                                    <span className="text-blue-600">{linkedInstance.requirement.name}</span>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                            <div className="flex items-center flex-shrink-0 ml-2">
+                              <span className="text-xs font-bold text-gray-900 tabular-nums w-24 text-right">{invoice.amount != null ? formatCurrency(invoice.amount) : ''}</span>
+                              <div className="w-7 flex items-center justify-center ml-2">
+                                {invoice.files && invoice.files.length > 0 && (
+                                  <button
+                                    onClick={async () => {
+                                      try {
+                                        const res = await apiFetch(`/invoice-files/${invoice.files[0].id}/download`);
+                                        if (!res.ok) throw new Error('Download failed');
+                                        const blob = await res.blob();
+                                        const url = URL.createObjectURL(blob);
+                                        window.open(url, '_blank');
+                                      } catch { alert('Failed to download file'); }
+                                    }}
+                                    className="p-1 rounded text-gray-400 hover:text-primary-600 hover:bg-primary-50 transition-colors"
+                                    title="View file"
+                                  >
+                                    <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
+                                      <path fillRule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm2 6a1 1 0 011-1h6a1 1 0 110 2H7a1 1 0 01-1-1zm1 3a1 1 0 100 2h6a1 1 0 100-2H7z" clipRule="evenodd" />
+                                    </svg>
+                                  </button>
+                                )}
+                              </div>
+                              <div className="w-8 flex items-center justify-center">
+                                <Link
+                                  href={`/dashboard/pharmacy/invoices/${invoice.id}`}
+                                  className="inline-flex items-center px-1 py-1 rounded-md text-[10px] font-medium text-primary-600 hover:bg-primary-50 transition-colors"
+                                >
+                                  {invoice.status === 'DRAFT' ? 'Edit' : 'View'}
+                                </Link>
+                              </div>
+                              <div className="w-14 flex items-center justify-center">
+                                {!isManager && invoice.status === 'DRAFT' && (
+                                  <button
+                                    onClick={() => handleSubmitDraft(invoice.id)}
+                                    disabled={submittingId === invoice.id}
+                                    className="inline-flex items-center px-2 py-1 rounded-md text-[10px] font-semibold text-white bg-emerald-600 hover:bg-emerald-700 transition-colors disabled:opacity-50"
+                                  >
+                                    {submittingId === invoice.id ? '...' : 'Submit'}
+                                  </button>
+                                )}
+                                {isManager && invoice.status === 'SUBMITTED' && (
+                                  <button
+                                    onClick={() => { setActionInvoiceId(invoice.id); setActionType('approve'); setActionNotes(''); }}
+                                    className="inline-flex items-center px-2 py-1 rounded-md text-[10px] font-semibold text-white bg-emerald-600 hover:bg-emerald-700 transition-colors"
+                                  >
+                                    Approve
+                                  </button>
+                                )}
+                              </div>
+                              <div className="w-7 flex items-center justify-center relative">
+                                {!isManager && invoice.status === 'DRAFT' && !hasLinkedInstance && (
+                                  <>
                                     <button
-                                      onClick={() => handleDeleteDraft(invoice.id)}
-                                      className="text-[11px] font-medium text-white bg-red-600 hover:bg-red-700 px-2.5 py-1 rounded transition-colors"
+                                      onClick={() => setConfirmDeleteId(confirmDeleteId === invoice.id ? null : invoice.id)}
+                                      disabled={deletingId === invoice.id}
+                                      className="p-1 rounded text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors disabled:opacity-50"
+                                      title="Delete draft"
                                     >
-                                      Delete
+                                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                        </svg>
                                     </button>
-                                    <button
-                                      onClick={() => setConfirmDeleteId(null)}
-                                      className="text-[11px] font-medium text-gray-600 hover:text-gray-800 px-2.5 py-1 rounded border border-gray-200 hover:bg-gray-50 transition-colors"
-                                    >
-                                      Cancel
-                                    </button>
+                                    {confirmDeleteId === invoice.id && (
+                                      <div className="absolute right-0 top-full mt-1 z-30 bg-white border border-red-200 rounded-lg shadow-lg p-3 w-48">
+                                        <p className="text-xs text-gray-700 mb-2">Delete this draft?</p>
+                                        <div className="flex items-center gap-2">
+                                          <button onClick={() => handleDeleteDraft(invoice.id)} className="text-[11px] font-medium text-white bg-red-600 hover:bg-red-700 px-2.5 py-1 rounded transition-colors">Delete</button>
+                                          <button onClick={() => setConfirmDeleteId(null)} className="text-[11px] font-medium text-gray-600 hover:text-gray-800 px-2.5 py-1 rounded border border-gray-200 hover:bg-gray-50 transition-colors">Cancel</button>
+                                        </div>
+                                      </div>
+                                    )}
+                                  </>
+                                )}
+                                {isManager && invoice.status === 'SUBMITTED' && (
+                                  <button
+                                    onClick={() => { setActionInvoiceId(invoice.id); setActionType('reject'); setActionNotes(''); }}
+                                    className="inline-flex items-center px-1 py-1 rounded-md text-[10px] font-medium text-red-600 hover:bg-red-50 transition-colors"
+                                  >
+                                    Reject
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+
+                    {/* Completed Section */}
+                    {completedItems.length > 0 && (
+                      <>
+                        <div className="flex items-center gap-2 bg-green-50 border border-green-200 rounded-lg px-3 py-2">
+                          <div className="w-2 h-2 rounded-full bg-green-500" />
+                          <h3 className="text-xs font-bold text-green-800 uppercase tracking-wider">Completed</h3>
+                          <span className="text-[10px] text-white bg-green-500 px-1.5 py-0.5 rounded-full font-bold">{completedItems.length}</span>
+                        </div>
+                        {completedItems.map(({ data: inv }) => {
+                          const invoice = inv as Invoice;
+                          return (
+                            <div
+                              key={invoice.id}
+                              className={`border-b border-gray-100 last:border-b-0 border-l-[3px] transition-all hover:bg-gray-50/50 opacity-75 hover:opacity-100 ${
+                                invoice.status === 'PAID' ? 'border-l-green-500' : 'border-l-red-400'
+                              }`}
+                            >
+                              <div className="flex items-center gap-3 px-3 py-2">
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-1.5 mb-0.5">
+                                    <span className="text-[11px] font-semibold text-gray-700 truncate">
+                                      {invoice.vendor?.name || 'Unknown Vendor'}
+                                    </span>
+                                    <span className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[9px] font-semibold flex-shrink-0 ${STATUS_COLORS[invoice.status] || 'bg-gray-100 text-gray-700'}`}>
+                                      <span className={`w-1 h-1 rounded-full ${STATUS_DOTS[invoice.status] || 'bg-gray-400'}`} />
+                                      {invoice.status === 'PAID' ? 'Paid' : 'Rejected'}
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center gap-2 text-[10px] text-gray-400">
+                                    <span>{invoice.invoiceNumber || 'No number'}</span>
+                                    {invoice.dueDate && (
+                                      <>
+                                        <span className="text-gray-300">|</span>
+                                        <span>{formatDate(invoice.dueDate)}</span>
+                                      </>
+                                    )}
                                   </div>
                                 </div>
-                              )}
+                                <div className="flex items-center flex-shrink-0 ml-2">
+                                  <span className="text-xs font-bold text-gray-700 tabular-nums w-24 text-right">{invoice.amount != null ? formatCurrency(invoice.amount) : ''}</span>
+                                  <div className="w-7 ml-2" />
+                                  <div className="w-8 flex items-center justify-center">
+                                    <Link
+                                      href={`/dashboard/pharmacy/invoices/${invoice.id}`}
+                                      className="inline-flex items-center px-1 py-1 rounded-md text-[10px] font-medium text-primary-600 hover:bg-primary-50 transition-colors"
+                                    >
+                                      View
+                                    </Link>
+                                  </div>
+                                  <div className="w-14" />
+                                  <div className="w-7" />
+                                </div>
+                              </div>
                             </div>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+                          );
+                        })}
+                      </>
+                    )}
+                  </div>
+                )}
 
-            {/* Pagination */}
-            {pagination && pagination.totalPages > 1 && (
-              <div className="px-3 py-2 border-t border-gray-100 flex items-center justify-between bg-slate-50/50">
-                <div className="text-[11px] text-gray-500">
-                  Page {pagination.page} of {pagination.totalPages}
-                </div>
-                <div className="flex gap-1">
-                  <button
-                    onClick={() => fetchData(pagination.page - 1)}
-                    disabled={pagination.page <= 1}
-                    className="btn-secondary !py-1 !px-2 text-[11px] disabled:opacity-40"
-                  >
-                    Prev
-                  </button>
-                  <button
-                    onClick={() => fetchData(pagination.page + 1)}
-                    disabled={pagination.page >= pagination.totalPages}
-                    className="btn-secondary !py-1 !px-2 text-[11px] disabled:opacity-40"
-                  >
-                    Next
-                  </button>
-                </div>
+                {/* Pagination */}
+                {pagination && pagination.totalPages > 1 && (
+                  <div className="flex items-center justify-between pt-1">
+                    <span className="text-[10px] text-gray-400">Page {pagination.page} of {pagination.totalPages}</span>
+                    <div className="flex gap-1">
+                      <button onClick={() => fetchData(pagination.page - 1)} disabled={pagination.page <= 1} className="btn-secondary !py-1 !px-2 text-[10px] disabled:opacity-40">Prev</button>
+                      <button onClick={() => fetchData(pagination.page + 1)} disabled={pagination.page >= pagination.totalPages} className="btn-secondary !py-1 !px-2 text-[10px] disabled:opacity-40">Next</button>
+                    </div>
+                  </div>
+                )}
               </div>
-            )}
-          </>
-        )}
-      </div>
+            </div>
+            </div>
+          );
+        })()
+      )}
 
       {/* Manager Action Modal */}
       {actionInvoiceId && actionType && (

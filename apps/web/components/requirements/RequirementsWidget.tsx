@@ -17,9 +17,10 @@ type RequirementsSummary = {
 
 type Props = {
   pharmacyId: string;
+  yearMonth?: string;
 };
 
-export default function RequirementsWidget({ pharmacyId }: Props) {
+export default function RequirementsWidget({ pharmacyId, yearMonth }: Props) {
   const [summary, setSummary] = useState<RequirementsSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -27,7 +28,8 @@ export default function RequirementsWidget({ pharmacyId }: Props) {
   useEffect(() => {
     async function fetchSummary() {
       try {
-        const res = await apiFetch(`/v1/requirements/pharmacy/${pharmacyId}/summary`);
+        const params = yearMonth ? `?yearMonth=${yearMonth}` : '';
+        const res = await apiFetch(`/v1/requirements/pharmacy/${pharmacyId}/summary${params}`);
         if (res.ok) {
           setSummary(await res.json());
         } else if (res.status === 404) {
@@ -43,9 +45,10 @@ export default function RequirementsWidget({ pharmacyId }: Props) {
       }
     }
     if (pharmacyId) {
+      setLoading(true);
       fetchSummary();
     }
-  }, [pharmacyId]);
+  }, [pharmacyId, yearMonth]);
 
   if (loading) {
     return (
@@ -114,7 +117,7 @@ export default function RequirementsWidget({ pharmacyId }: Props) {
       {/* Progress Bar */}
       <div className="mb-2">
         <div className="flex justify-between text-[10px] text-gray-500 mb-1">
-          <span>{new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}</span>
+          <span>{yearMonth ? new Date(parseInt(yearMonth.split('-')[0]), parseInt(yearMonth.split('-')[1]) - 1).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) : new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}</span>
           <span>{summary.submitted + summary.processed} / {summary.totalThisMonth} completed</span>
         </div>
         <div className="w-full bg-gray-200 rounded-full h-1.5">

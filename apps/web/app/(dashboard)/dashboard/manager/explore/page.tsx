@@ -560,15 +560,15 @@ export default function ManagerExplorePage() {
               </div>
             ) : (
               <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
+                <thead className="bg-gray-100 border-b-2 border-gray-300">
                   <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Invoice</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Pharmacy</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Vendor</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Amount</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Due Date</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
+                    <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase text-[11px]">Invoice</th>
+                    <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase text-[11px]">Pharmacy</th>
+                    <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase text-[11px]">Vendor</th>
+                    <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase text-[11px]">Amount</th>
+                    <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase text-[11px]">Due Date</th>
+                    <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase text-[11px]">Status</th>
+                    <th className="px-6 py-3 text-right text-xs font-semibold text-gray-700 uppercase text-[11px]">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
@@ -670,15 +670,15 @@ export default function ManagerExplorePage() {
               {summary.groups.length > 0 && (
                 <div className="card overflow-hidden">
                   <table className="min-w-full divide-y divide-gray-200">
-                    <thead className="bg-gray-50">
+                    <thead className="bg-gray-100 border-b-2 border-gray-300">
                       <tr>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                        <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase text-[11px]">
                           {groupBy || 'Group'}
                         </th>
-                        <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Count</th>
-                        <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Total</th>
-                        <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Paid</th>
-                        <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Average</th>
+                        <th className="px-6 py-3 text-right text-xs font-semibold text-gray-700 uppercase text-[11px]">Count</th>
+                        <th className="px-6 py-3 text-right text-xs font-semibold text-gray-700 uppercase text-[11px]">Total</th>
+                        <th className="px-6 py-3 text-right text-xs font-semibold text-gray-700 uppercase text-[11px]">Paid</th>
+                        <th className="px-6 py-3 text-right text-xs font-semibold text-gray-700 uppercase text-[11px]">Average</th>
                       </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
@@ -738,13 +738,13 @@ export default function ManagerExplorePage() {
               {/* Pharmacy Breakdown */}
               <div className="card overflow-hidden">
                 <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-50">
+                  <thead className="bg-gray-100 border-b-2 border-gray-300">
                     <tr>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Pharmacy</th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Invoices</th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Submission Missed</th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Processing Missed</th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Status</th>
+                      <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase text-[11px]">Pharmacy</th>
+                      <th className="px-6 py-3 text-right text-xs font-semibold text-gray-700 uppercase text-[11px]">Invoices</th>
+                      <th className="px-6 py-3 text-right text-xs font-semibold text-gray-700 uppercase text-[11px]">Submission Missed</th>
+                      <th className="px-6 py-3 text-right text-xs font-semibold text-gray-700 uppercase text-[11px]">Processing Missed</th>
+                      <th className="px-6 py-3 text-right text-xs font-semibold text-gray-700 uppercase text-[11px]">Status</th>
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">

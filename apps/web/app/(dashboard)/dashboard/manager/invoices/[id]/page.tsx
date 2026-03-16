@@ -228,14 +228,6 @@ export default function ManagerInvoiceDetailPage() {
       {/* Header - Compact */}
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-3">
-          <Link
-            href="/dashboard/manager/invoices"
-            className="text-gray-500 hover:text-gray-700"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-            </svg>
-          </Link>
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-lg font-bold text-gray-900">
@@ -250,6 +242,7 @@ export default function ManagerInvoiceDetailPage() {
             </p>
           </div>
         </div>
+        <div className="flex items-center gap-2">
         {invoice.entryMethod === 'AI_EXTRACTION' ? (
           <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-semibold bg-violet-100 text-violet-700">
             <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
@@ -265,6 +258,10 @@ export default function ManagerInvoiceDetailPage() {
             Manual
           </span>
         )}
+        <Link href="/dashboard/manager/invoices" className="text-xs px-3 py-1.5 rounded-md border border-gray-200 bg-white text-gray-700 font-medium hover:bg-gray-50 shadow-sm">
+          Back to Invoices
+        </Link>
+        </div>
       </div>
 
       {error && (

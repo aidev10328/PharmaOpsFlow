@@ -25,17 +25,19 @@ type SlaAlert = {
 
 type Props = {
   pharmacyId: string;
+  yearMonth?: string;
 };
 
-export default function SlaAlertWidget({ pharmacyId }: Props) {
+export default function SlaAlertWidget({ pharmacyId, yearMonth }: Props) {
   const [status, setStatus] = useState<SlaStatus | null>(null);
   const [alerts, setAlerts] = useState<SlaAlert[]>([]);
   const [loading, setLoading] = useState(true);
 
   const fetchData = useCallback(async () => {
     try {
+      const monthParam = yearMonth ? `?yearMonth=${yearMonth}` : '';
       const [statusRes, alertsRes] = await Promise.all([
-        apiFetch(`/v1/sla/pharmacies/${pharmacyId}`),
+        apiFetch(`/v1/sla/pharmacies/${pharmacyId}${monthParam}`),
         apiFetch(`/v1/sla/pharmacies/${pharmacyId}/alerts?limit=3`),
       ]);
 
@@ -50,7 +52,7 @@ export default function SlaAlertWidget({ pharmacyId }: Props) {
     } finally {
       setLoading(false);
     }
-  }, [pharmacyId]);
+  }, [pharmacyId, yearMonth]);
 
   useEffect(() => {
     fetchData();

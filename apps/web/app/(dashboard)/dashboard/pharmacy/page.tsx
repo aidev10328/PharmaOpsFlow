@@ -55,6 +55,10 @@ export default function PharmacyDashboard() {
   const [invoiceStats, setInvoiceStats] = useState<InvoiceStats | null>(null);
   const [loadingStats, setLoadingStats] = useState(false);
   const [requirementsSummary, setRequirementsSummary] = useState<RequirementsSummary | null>(null);
+  const [monthFilter, setMonthFilter] = useState(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  });
 
   useEffect(() => {
     if (!loading && !user) {
@@ -85,16 +89,14 @@ export default function PharmacyDashboard() {
     }
   }, [user]);
 
-  // Fetch invoice stats for current month
+  // Fetch invoice stats for selected month
   const fetchInvoiceStats = useCallback(async (pharmacyId: string) => {
     setLoadingStats(true);
     try {
-      const currentMonth = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`;
-
       // Fetch both invoice stats and requirement instances in parallel
       const [statsRes, instancesRes] = await Promise.all([
-        apiFetch(`/invoices/stats?pharmacyId=${pharmacyId}&month=${currentMonth}`),
-        apiFetch(`/v1/requirements/pharmacy/${pharmacyId}/instances?yearMonth=${currentMonth}`),
+        apiFetch(`/invoices/stats?pharmacyId=${pharmacyId}&month=${monthFilter}`),
+        apiFetch(`/v1/requirements/pharmacy/${pharmacyId}/instances?yearMonth=${monthFilter}`),
       ]);
 
       if (!statsRes.ok) {
@@ -133,7 +135,7 @@ export default function PharmacyDashboard() {
     } finally {
       setLoadingStats(false);
     }
-  }, []);
+  }, [monthFilter]);
 
   useEffect(() => {
     if (selectedPharmacy) {
@@ -182,9 +184,41 @@ export default function PharmacyDashboard() {
       {/* Page Header */}
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-heading font-bold text-gray-900">Pharmacy Dashboard</h1>
-        <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold ${getRoleBadgeColor(user.role)}`}>
-          {user.role.replace('_', ' ')}
-        </span>
+        {/* Month Picker */}
+        <div className="flex items-center gap-1.5">
+          <button
+            onClick={() => {
+              const [y, m] = monthFilter.split('-').map(Number);
+              const d = new Date(y, m - 2, 1);
+              setMonthFilter(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+            }}
+            className="p-1 rounded hover:bg-gray-100 text-gray-500 hover:text-gray-700 transition-colors"
+            title="Previous month"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+            </svg>
+          </button>
+          <input
+            type="month"
+            value={monthFilter}
+            onChange={(e) => setMonthFilter(e.target.value)}
+            className="text-sm font-medium text-gray-700 border border-gray-200 rounded-md px-2 py-1 focus:outline-none focus:ring-1 focus:ring-primary-500 focus:border-primary-500"
+          />
+          <button
+            onClick={() => {
+              const [y, m] = monthFilter.split('-').map(Number);
+              const d = new Date(y, m, 1);
+              setMonthFilter(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+            }}
+            className="p-1 rounded hover:bg-gray-100 text-gray-500 hover:text-gray-700 transition-colors"
+            title="Next month"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
+          </button>
+        </div>
       </div>
 
       {loadingPharmacies ? (
@@ -367,8 +401,8 @@ export default function PharmacyDashboard() {
 
               {/* Requirements & SLA Widgets */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-                <RequirementsWidget pharmacyId={selectedPharmacy.id} />
-                <SlaAlertWidget pharmacyId={selectedPharmacy.id} />
+                <RequirementsWidget pharmacyId={selectedPharmacy.id} yearMonth={monthFilter} />
+                <SlaAlertWidget pharmacyId={selectedPharmacy.id} yearMonth={monthFilter} />
               </div>
             </>
           )}

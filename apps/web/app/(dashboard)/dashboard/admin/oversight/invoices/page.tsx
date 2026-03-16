@@ -4,6 +4,9 @@ import { useAuth } from '../../../../../../components/AuthProvider';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { apiFetch } from '../../../../../../lib/api';
+import dynamic from 'next/dynamic';
+
+const InvoiceCalendarView = dynamic(() => import('../../../../../../components/invoice/InvoiceCalendarView'), { ssr: false });
 
 const STATUS_COLORS: Record<string, string> = {
   DRAFT: 'bg-gray-100 text-gray-700',
@@ -40,7 +43,7 @@ function SortableHeader({
   const isActive = sortConfig.field === field;
   return (
     <th
-      className={`px-3 py-2 text-left font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100 select-none ${className}`}
+      className={`px-3 py-2 text-left font-semibold text-gray-700 uppercase text-[11px] cursor-pointer hover:bg-gray-200 select-none ${className}`}
       onClick={() => onSort(field)}
     >
       <div className="flex items-center gap-1">
@@ -82,6 +85,17 @@ export default function InvoiceOversightPage() {
   // Sorting state
   const [sortConfig, setSortConfig] = useState<SortConfig>({ field: 'dueDate', direction: 'desc' });
 
+  // View mode
+  const [viewMode, setViewMode] = useState<'list' | 'calendar'>('list');
+  const currentMonthStr = () => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  };
+  const [calendarMonth, setCalendarMonth] = useState(currentMonthStr());
+
+  const formatCurrencyFn = (amount: string | number) =>
+    new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Number(amount));
+
   useEffect(() => {
     if (!loading && !user) { router.push('/login'); return; }
     if (!loading && user && user.role !== 'ADMIN') { router.push('/dashboard'); return; }
@@ -107,7 +121,7 @@ export default function InvoiceOversightPage() {
     try {
       const params = new URLSearchParams();
       params.set('page', String(p));
-      params.set('limit', '10');
+      params.set('limit', viewMode === 'calendar' ? '200' : '10');
       if (pharmacyFilter) params.set('pharmacyId', pharmacyFilter);
       if (statusFilter) params.set('status', statusFilter);
       if (overdueFilter) params.set('overdueOnly', 'true');
@@ -126,7 +140,7 @@ export default function InvoiceOversightPage() {
       setTotalPages(data.totalPages || 1);
     } catch (e: any) { setError(e.message); }
     finally { setLoadingData(false); }
-  }, [pharmacyFilter, statusFilter, overdueFilter, needsReviewFilter, invoiceTypeFilter, vendorFilter, dateFrom, dateTo]);
+  }, [pharmacyFilter, statusFilter, overdueFilter, needsReviewFilter, invoiceTypeFilter, vendorFilter, dateFrom, dateTo, viewMode]);
 
   useEffect(() => {
     if (user?.role === 'ADMIN') fetchInvoices(1);
@@ -263,11 +277,59 @@ export default function InvoiceOversightPage() {
         </div>
       </div>
 
+      {/* View Toggle */}
+      <div className="flex items-center gap-3">
+        <div className="flex items-center bg-gray-100 rounded-lg p-0.5">
+          <button
+            onClick={() => setViewMode('list')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+              viewMode === 'list' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h16M4 18h16" />
+            </svg>
+            List
+          </button>
+          <button
+            onClick={() => setViewMode('calendar')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+              viewMode === 'calendar' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+            </svg>
+            Calendar
+          </button>
+        </div>
+        {viewMode === 'calendar' && (
+          <input
+            type="month"
+            value={calendarMonth}
+            onChange={e => setCalendarMonth(e.target.value)}
+            className="input-field text-xs py-1.5 px-3"
+          />
+        )}
+      </div>
+
+      {/* Calendar View */}
+      {viewMode === 'calendar' && (
+        <InvoiceCalendarView
+          invoices={sortedInvoices}
+          monthFilter={calendarMonth}
+          isManager={true}
+          formatCurrency={formatCurrencyFn}
+          basePath="/dashboard/admin/oversight/invoices"
+          onMonthChange={setCalendarMonth}
+        />
+      )}
+
       {/* Table */}
-      <div className="card overflow-hidden">
+      {viewMode === 'list' && <div className="card overflow-hidden">
         <div className="overflow-x-auto">
           <table className="min-w-full text-xs">
-            <thead className="bg-gray-50">
+            <thead className="bg-gray-100 border-b-2 border-gray-300">
               <tr>
                 <SortableHeader label="Invoice #" field="invoiceNumber" sortConfig={sortConfig} onSort={handleSort} />
                 <SortableHeader label="Pharmacy" field="pharmacy" sortConfig={sortConfig} onSort={handleSort} />
@@ -276,7 +338,7 @@ export default function InvoiceOversightPage() {
                 <SortableHeader label="Amount" field="amount" sortConfig={sortConfig} onSort={handleSort} />
                 <SortableHeader label="Due" field="dueDate" sortConfig={sortConfig} onSort={handleSort} className="hidden md:table-cell" />
                 <SortableHeader label="Status" field="status" sortConfig={sortConfig} onSort={handleSort} />
-                <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase hidden lg:table-cell">Review</th>
+                <th className="px-3 py-2 text-left font-semibold text-gray-700 uppercase text-[11px] hidden lg:table-cell">Review</th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-100">
@@ -345,7 +407,7 @@ export default function InvoiceOversightPage() {
             </div>
           </div>
         )}
-      </div>
+      </div>}
     </div>
   );
 }

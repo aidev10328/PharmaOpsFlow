@@ -11,6 +11,7 @@ import { ChatModule } from './chat/chat.module';
 import { AdminModule } from './admin/admin.module';
 import { OversightModule } from './oversight/oversight.module';
 import { RequirementsModule } from './requirements/requirements.module';
+import { SupportModule } from './support/support.module';
 import { HealthController } from './health/health.controller';
 import { PrismaService } from './prisma.service';
 
@@ -28,6 +29,7 @@ import { PrismaService } from './prisma.service';
     AdminModule,
     OversightModule,
     RequirementsModule,
+    SupportModule,
   ],
   controllers: [HealthController],
   providers: [PrismaService],

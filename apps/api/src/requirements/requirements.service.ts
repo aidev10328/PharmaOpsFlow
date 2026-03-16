@@ -728,6 +728,7 @@ export class RequirementsService {
    */
   async getPharmacyRequirementsSummary(
     pharmacyId: string,
+    yearMonth?: string,
   ): Promise<PharmacyRequirementsSummary> {
     const pharmacy = await this.prisma.pharmacy.findUnique({
       where: { id: pharmacyId },
@@ -738,10 +739,18 @@ export class RequirementsService {
       throw new NotFoundException('Pharmacy not found');
     }
 
-    // Get current month instances
+    // Get instances for the specified month (or current month)
     const now = new Date();
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+    let monthStart: Date;
+    let monthEnd: Date;
+    if (yearMonth) {
+      const [year, month] = yearMonth.split('-').map(Number);
+      monthStart = new Date(year, month - 1, 1);
+      monthEnd = new Date(year, month, 0, 23, 59, 59);
+    } else {
+      monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+    }
 
     const instances = await this.prisma.requirementInstance.findMany({
       where: {

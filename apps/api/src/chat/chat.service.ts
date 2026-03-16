@@ -19,7 +19,7 @@ import {
 } from './dto/chat.dto';
 import { v4 as uuidv4 } from 'uuid';
 
-const QUERY_PLANNER_PROMPT = `You are a query planner for an invoice management system. Your job is to convert natural language questions into structured query plans.
+const QUERY_PLANNER_PROMPT = `You are a query planner for a pharmacy invoice management platform called PharmaOpsFlow. Convert natural language questions into structured query plans.
 
 IMPORTANT: Return ONLY valid JSON, no additional text or markdown.
 
@@ -30,10 +30,14 @@ Current context:
 - Allowed invoice statuses: DRAFT, SUBMITTED, NEEDS_INFO, APPROVED, SCHEDULED, PAID, REJECTED
 - Known invoice types: {{INVOICE_TYPES}}
 - Pharmacy codes: {{PHARMACY_CODES}}
+- Total pharmacies: {{PHARMACY_COUNT}}
+- Total vendors: {{VENDOR_COUNT}}
+- Total invoice types: {{INVOICE_TYPE_COUNT}}
+- Total users: {{USER_COUNT}}
 
 Query plan format:
 {
-  "intent": "invoice_search" | "invoice_summary" | "sla_summary" | "invoice_detail" | "help",
+  "intent": "invoice_search" | "invoice_summary" | "sla_summary" | "invoice_detail" | "platform_stats" | "help",
   "filters": {
     "month": "YYYY-MM",
     "pharmacyId": "uuid",
@@ -47,6 +51,7 @@ Query plan format:
     "vendorNameContains": "string",
     "invoiceId": "uuid"
   },
+  "statsType": "overview" | "vendors" | "pharmacies" | "invoice_types" | "users",
   "groupBy": "pharmacy" | "invoiceType" | "status" | "vendor" | null,
   "sort": [{"field": "dueDate" | "amount" | "createdAt", "direction": "asc" | "desc"}],
   "limit": number,
@@ -62,8 +67,15 @@ Rules:
 6. For specific invoice questions, use intent: "invoice_detail" with filters.invoiceId
 7. Default limit is 20, max is 100
 8. If month not specified for SLA, use current month
-9. For questions about "who am I", "my name", "my role", greetings, or anything NOT about invoices, use intent: "help" and include a helpful response in "helpResponse" field. Example: {"intent": "help", "helpResponse": "You are logged in as John Doe (john@example.com) with role ADMIN."}
+9. For questions about "who am I", "my name", "my role", greetings, or anything NOT about invoices/platform, use intent: "help" and include a helpful response in "helpResponse" field. Example: {"intent": "help", "helpResponse": "You are logged in as John Doe (john@example.com) with role ADMIN."}
 10. For "help" or "what can you do", use intent: "help" with a list of example questions in helpResponse
+11. For questions about platform data like "how many vendors", "list pharmacies", "how many users", "how many invoice types", "show me all vendors", "what pharmacies do we have" — use intent: "platform_stats" with the appropriate statsType:
+    - "vendors" — list or count vendors
+    - "pharmacies" — list or count pharmacies
+    - "invoice_types" — list or count invoice types
+    - "users" — list or count users
+    - "overview" — general platform overview (counts of everything)
+12. For "how many invoices" without grouping or specific filters, use intent: "invoice_summary" (not platform_stats)
 
 User question: {{USER_MESSAGE}}
 
@@ -105,13 +117,15 @@ export class ChatService {
     }
 
     // Get context for the prompt
-    const [invoiceTypes, pharmacies, user] = await Promise.all([
+    const [invoiceTypes, pharmacies, vendors, user, userCount] = await Promise.all([
       this.queryService.getInvoiceTypes(),
       this.queryService.getPharmaciesForOrg(orgId, assignedPharmacyIds),
+      this.queryService.getVendors(),
       this.prisma.user.findUnique({
         where: { id: userId },
         select: { firstName: true, lastName: true, email: true, role: true },
       }),
+      this.prisma.user.count(),
     ]);
 
     const userName = user ? [user.firstName, user.lastName].filter(Boolean).join(' ') || 'Unknown User' : 'Unknown User';
@@ -132,6 +146,10 @@ export class ChatService {
         '{{PHARMACY_CODES}}',
         pharmacies.map((p) => `${p.code} (${p.name})`).join(', '),
       )
+      .replace('{{PHARMACY_COUNT}}', String(pharmacies.length))
+      .replace('{{VENDOR_COUNT}}', String(vendors.length))
+      .replace('{{INVOICE_TYPE_COUNT}}', String(invoiceTypes.length))
+      .replace('{{USER_COUNT}}', String(userCount))
       .replace('{{USER_MESSAGE}}', dto.message);
 
     // Call LLM
@@ -231,6 +249,16 @@ export class ChatService {
           orgId,
         );
         summaryText = this.generateDetailSummary(result);
+        break;
+
+      case 'platform_stats':
+        const statsResult = await this.getPlatformStats(
+          (queryPlan as any).statsType || 'overview',
+          orgId,
+          managerId ? filters.assignedPharmacyIds : undefined,
+        );
+        result = statsResult;
+        summaryText = statsResult.summaryText;
         break;
 
       case 'help':
@@ -392,6 +420,109 @@ export class ChatService {
   }
 
   /**
+   * Get platform statistics (vendors, pharmacies, invoice types, users)
+   */
+  private async getPlatformStats(
+    statsType: string,
+    orgId: string,
+    assignedPharmacyIds?: string[],
+  ): Promise<{ rows: any[]; metrics: any; summaryText: string }> {
+    const pharmacyWhere: any = { isActive: true };
+    if (assignedPharmacyIds) {
+      pharmacyWhere.id = { in: assignedPharmacyIds };
+    } else if (orgId) {
+      pharmacyWhere.orgId = orgId;
+    }
+
+    switch (statsType) {
+      case 'vendors': {
+        const vendors = await this.prisma.vendor.findMany({
+          where: { isActive: true },
+          select: { id: true, name: true, code: true },
+          orderBy: { name: 'asc' },
+        });
+        return {
+          rows: vendors,
+          metrics: { totalVendors: vendors.length },
+          summaryText: `There are ${vendors.length} active vendors in the platform: ${vendors.map(v => v.name).join(', ')}.`,
+        };
+      }
+
+      case 'pharmacies': {
+        const pharmacies = await this.prisma.pharmacy.findMany({
+          where: pharmacyWhere,
+          select: { id: true, name: true, code: true },
+          orderBy: { name: 'asc' },
+        });
+        return {
+          rows: pharmacies,
+          metrics: { totalPharmacies: pharmacies.length },
+          summaryText: `There are ${pharmacies.length} active pharmacies: ${pharmacies.map(p => `${p.name} (${p.code})`).join(', ')}.`,
+        };
+      }
+
+      case 'invoice_types': {
+        const types = await this.prisma.invoiceType.findMany({
+          where: { isActive: true },
+          select: { id: true, name: true, code: true },
+          orderBy: { name: 'asc' },
+        });
+        return {
+          rows: types,
+          metrics: { totalInvoiceTypes: types.length },
+          summaryText: `There are ${types.length} active invoice types: ${types.map(t => t.name).join(', ')}.`,
+        };
+      }
+
+      case 'users': {
+        const users = await this.prisma.user.findMany({
+          where: { isActive: true },
+          select: { id: true, email: true, firstName: true, lastName: true, role: true },
+          orderBy: { email: 'asc' },
+        });
+        const roleCounts = users.reduce((acc: Record<string, number>, u) => {
+          acc[u.role] = (acc[u.role] || 0) + 1;
+          return acc;
+        }, {});
+        const roleBreakdown = Object.entries(roleCounts)
+          .map(([role, count]) => `${count} ${role.replace(/_/g, ' ')}`)
+          .join(', ');
+        return {
+          rows: users.map(u => ({
+            name: [u.firstName, u.lastName].filter(Boolean).join(' ') || u.email,
+            email: u.email,
+            role: u.role,
+          })),
+          metrics: { totalUsers: users.length, ...roleCounts },
+          summaryText: `There are ${users.length} active users: ${roleBreakdown}.`,
+        };
+      }
+
+      case 'overview':
+      default: {
+        const [pharmacyCount, vendorCount, typeCount, userCount, invoiceCount] = await Promise.all([
+          this.prisma.pharmacy.count({ where: pharmacyWhere }),
+          this.prisma.vendor.count({ where: { isActive: true } }),
+          this.prisma.invoiceType.count({ where: { isActive: true } }),
+          this.prisma.user.count({ where: { isActive: true } }),
+          this.prisma.invoice.count(),
+        ]);
+        return {
+          rows: [],
+          metrics: {
+            totalPharmacies: pharmacyCount,
+            totalVendors: vendorCount,
+            totalInvoiceTypes: typeCount,
+            totalUsers: userCount,
+            totalInvoices: invoiceCount,
+          },
+          summaryText: `Platform overview: ${pharmacyCount} pharmacies, ${vendorCount} vendors, ${typeCount} invoice types, ${userCount} users, ${invoiceCount} total invoices.`,
+        };
+      }
+    }
+  }
+
+  /**
    * Parse query plan from LLM response with fallback for help questions
    */
   private parseQueryPlan(
@@ -474,6 +605,7 @@ export class ChatService {
       'invoice_summary',
       'sla_summary',
       'invoice_detail',
+      'platform_stats',
       'help',
     ];
 
@@ -483,8 +615,8 @@ export class ChatService {
       );
     }
 
-    // Help intent doesn't need further validation
-    if (queryPlan.intent === 'help') {
+    // Help and platform_stats intents don't need further validation
+    if (queryPlan.intent === 'help' || queryPlan.intent === 'platform_stats') {
       return;
     }
 

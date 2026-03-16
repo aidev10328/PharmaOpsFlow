@@ -5,6 +5,9 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { apiFetch } from '../../../../../lib/api';
 import Link from 'next/link';
+import dynamic from 'next/dynamic';
+
+const InvoiceCalendarView = dynamic(() => import('../../../../../components/invoice/InvoiceCalendarView'), { ssr: false });
 
 type SortConfig = {
   field: string;
@@ -198,7 +201,7 @@ function SortableHeader({
   const isActive = sortConfig.field === field;
   return (
     <th
-      className={`px-3 py-2 font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100 select-none ${className}`}
+      className={`px-3 py-2 font-semibold text-gray-700 uppercase text-[11px] cursor-pointer hover:bg-gray-200 select-none ${className}`}
       onClick={() => onSort(field)}
     >
       <div className="flex items-center gap-1">
@@ -219,6 +222,7 @@ export default function ManagerOperationsPage() {
 
   // Top-level tab
   const [mainTab, setMainTab] = useState<'invoices' | 'analytics' | 'compliance'>('invoices');
+  const [viewMode, setViewMode] = useState<'list' | 'calendar'>('list');
 
   // ─── Invoices Tab State ──────────────────────────────────
   const [invoiceSubTab, setInvoiceSubTab] = useState<'pending' | 'all'>('pending');
@@ -335,7 +339,7 @@ export default function ManagerOperationsPage() {
       if (filters.amountMin) params.append('amountMin', filters.amountMin);
       if (filters.amountMax) params.append('amountMax', filters.amountMax);
       params.append('page', String(invoicePage));
-      params.append('limit', String(invoiceLimit));
+      params.append('limit', viewMode === 'calendar' ? '200' : String(invoiceLimit));
 
       const res = await apiFetch(`/explore/invoices?${params.toString()}`);
       if (res.ok) {
@@ -348,7 +352,7 @@ export default function ManagerOperationsPage() {
     } finally {
       setLoadingAllInvoices(false);
     }
-  }, [filters, invoicePage, invoiceLimit]);
+  }, [filters, invoicePage, invoiceLimit, viewMode]);
 
   // ─── Initial data load ──────────────────────────────────
   useEffect(() => {
@@ -449,12 +453,26 @@ export default function ManagerOperationsPage() {
     }
   }, [user, mainTab, fetchCompliance]);
 
+  const [runningEval, setRunningEval] = useState(false);
+  const [evalMessage, setEvalMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
   const runEvaluation = async () => {
+    setRunningEval(true);
+    setEvalMessage(null);
     try {
       const res = await apiFetch(`/v1/sla/run?yearMonth=${selectedMonth}`, { method: 'POST' });
-      if (res.ok) await fetchCompliance();
+      if (res.ok) {
+        const result = await res.json();
+        setEvalMessage({ type: 'success', text: `Evaluated ${result.pharmaciesEvaluated} pharmacies: ${result.submissionViolations} submission violations, ${result.processingViolations} processing violations` });
+        await fetchCompliance();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setEvalMessage({ type: 'error', text: data.message || 'Evaluation failed' });
+      }
     } catch (e) {
-      console.error('Failed to run evaluation:', e);
+      setEvalMessage({ type: 'error', text: 'Failed to run evaluation' });
+    } finally {
+      setRunningEval(false);
     }
   };
 
@@ -749,7 +767,7 @@ export default function ManagerOperationsPage() {
             </div>
           )}
 
-          {/* Invoice Sub-Tabs - Compact */}
+          {/* Invoice Sub-Tabs + View Toggle */}
           <div className="flex items-center gap-3 mb-3">
             <div className="flex bg-gray-100 rounded p-0.5">
               <button
@@ -767,6 +785,32 @@ export default function ManagerOperationsPage() {
                 }`}
               >
                 All Invoices
+              </button>
+            </div>
+
+            {/* View Toggle */}
+            <div className="flex items-center bg-gray-100 rounded-lg p-0.5 ml-auto">
+              <button
+                onClick={() => setViewMode('list')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                  viewMode === 'list' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h16M4 18h16" />
+                </svg>
+                List
+              </button>
+              <button
+                onClick={() => setViewMode('calendar')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                  viewMode === 'calendar' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
+                Calendar
               </button>
             </div>
           </div>
@@ -886,8 +930,20 @@ export default function ManagerOperationsPage() {
             </>
           )}
 
+          {/* Calendar View */}
+          {viewMode === 'calendar' && (
+            <InvoiceCalendarView
+              invoices={invoiceSubTab === 'pending' ? sortedPendingInvoices : sortedAllInvoices}
+              monthFilter={filters.month || new Date().toISOString().slice(0, 7)}
+              isManager={true}
+              formatCurrency={formatCurrency}
+              basePath="/dashboard/manager/invoices"
+              onMonthChange={(m) => setFilters(prev => ({ ...prev, month: m }))}
+            />
+          )}
+
           {/* Invoice Table */}
-          <InvoiceTable
+          {viewMode === 'list' && <InvoiceTable
             invoices={invoiceSubTab === 'pending' ? sortedPendingInvoices : sortedAllInvoices}
             loading={invoiceSubTab === 'pending' ? loadingInvoices : loadingAllInvoices}
             emptyTitle={invoiceSubTab === 'pending' ? 'No Pending Invoices' : 'No Invoices Found'}
@@ -899,7 +955,7 @@ export default function ManagerOperationsPage() {
             processingAction={processingAction}
             sortConfig={invoiceSortConfig}
             onSort={handleInvoiceSort}
-          />
+          />}
 
           {/* Pagination (All Invoices) - Compact */}
           {invoiceSubTab === 'all' && invoiceTotalCount > invoiceLimit && (
@@ -1201,13 +1257,13 @@ export default function ManagerOperationsPage() {
                     </h3>
                   </div>
                   <table className="min-w-full text-xs">
-                    <thead className="bg-gray-50">
+                    <thead className="bg-gray-100 border-b-2 border-gray-300">
                       <tr>
-                        <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase">{groupBy}</th>
-                        <th className="px-3 py-2 text-right font-medium text-gray-500 uppercase">Count</th>
-                        <th className="px-3 py-2 text-right font-medium text-gray-500 uppercase">Total</th>
-                        <th className="px-3 py-2 text-right font-medium text-gray-500 uppercase">Paid</th>
-                        <th className="px-3 py-2 text-right font-medium text-gray-500 uppercase">Unpaid</th>
+                        <th className="px-3 py-2 text-left font-semibold text-gray-700 uppercase text-[11px]">{groupBy}</th>
+                        <th className="px-3 py-2 text-right font-semibold text-gray-700 uppercase text-[11px]">Count</th>
+                        <th className="px-3 py-2 text-right font-semibold text-gray-700 uppercase text-[11px]">Total</th>
+                        <th className="px-3 py-2 text-right font-semibold text-gray-700 uppercase text-[11px]">Paid</th>
+                        <th className="px-3 py-2 text-right font-semibold text-gray-700 uppercase text-[11px]">Unpaid</th>
                       </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-100">
@@ -1239,14 +1295,14 @@ export default function ManagerOperationsPage() {
                     <div className="p-4 text-center text-gray-400 text-xs">No invoices found</div>
                   ) : (
                     <table className="min-w-full text-xs">
-                      <thead className="bg-gray-50">
+                      <thead className="bg-gray-100 border-b-2 border-gray-300">
                         <tr>
                           <SortableHeader label="Invoice" field="invoiceNumber" sortConfig={invoiceSortConfig} onSort={handleInvoiceSort} className="text-left" />
                           <SortableHeader label="Pharmacy" field="pharmacy" sortConfig={invoiceSortConfig} onSort={handleInvoiceSort} className="text-left" />
                           <SortableHeader label="Vendor" field="vendor" sortConfig={invoiceSortConfig} onSort={handleInvoiceSort} className="text-left" />
                           <SortableHeader label="Amount" field="amount" sortConfig={invoiceSortConfig} onSort={handleInvoiceSort} className="text-right" />
-                          <th className="px-3 py-2 text-right font-medium text-gray-500 uppercase">Paid</th>
-                          <th className="px-3 py-2 text-right font-medium text-gray-500 uppercase">Unpaid</th>
+                          <th className="px-3 py-2 text-right font-semibold text-gray-700 uppercase text-[11px]">Paid</th>
+                          <th className="px-3 py-2 text-right font-semibold text-gray-700 uppercase text-[11px]">Unpaid</th>
                           <SortableHeader label="Status" field="status" sortConfig={invoiceSortConfig} onSort={handleInvoiceSort} className="text-left" />
                         </tr>
                       </thead>
@@ -1300,8 +1356,8 @@ export default function ManagerOperationsPage() {
                   <option key={opt.value} value={opt.value}>{opt.label}</option>
                 ))}
               </select>
-              <button onClick={runEvaluation} className="btn-dark text-xs px-3 py-1.5 whitespace-nowrap">
-                Run Evaluation
+              <button onClick={runEvaluation} disabled={runningEval} className="btn-dark text-xs px-3 py-1.5 whitespace-nowrap disabled:opacity-50">
+                {runningEval ? 'Running...' : 'Run Evaluation'}
               </button>
             </div>
           </div>
@@ -1309,6 +1365,11 @@ export default function ManagerOperationsPage() {
           {complianceError && (
             <div className="bg-red-50 border border-red-200 text-red-600 px-3 py-2 rounded text-xs mb-4">
               {complianceError}
+            </div>
+          )}
+          {evalMessage && (
+            <div className={`px-3 py-2 rounded text-xs mb-4 border ${evalMessage.type === 'success' ? 'bg-green-50 border-green-200 text-green-700' : 'bg-red-50 border-red-200 text-red-600'}`}>
+              {evalMessage.text}
             </div>
           )}
 
@@ -1366,16 +1427,16 @@ export default function ManagerOperationsPage() {
                 </div>
                 <div className="overflow-x-auto">
                   <table className="min-w-full text-xs">
-                    <thead className="bg-gray-50">
+                    <thead className="bg-gray-100 border-b-2 border-gray-300">
                       <tr>
-                        <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase">Pharmacy</th>
-                        <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase hidden sm:table-cell">Code</th>
-                        <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase hidden md:table-cell">Expected</th>
-                        <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase hidden md:table-cell">Submitted</th>
-                        <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase hidden lg:table-cell">Processed</th>
-                        <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase">Rate</th>
-                        <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase">Submission</th>
-                        <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase">Processing</th>
+                        <th className="px-3 py-2 text-left font-semibold text-gray-700 uppercase text-[11px]">Pharmacy</th>
+                        <th className="px-3 py-2 text-left font-semibold text-gray-700 uppercase text-[11px] hidden sm:table-cell">Code</th>
+                        <th className="px-3 py-2 text-left font-semibold text-gray-700 uppercase text-[11px] hidden md:table-cell">Expected</th>
+                        <th className="px-3 py-2 text-left font-semibold text-gray-700 uppercase text-[11px] hidden md:table-cell">Submitted</th>
+                        <th className="px-3 py-2 text-left font-semibold text-gray-700 uppercase text-[11px] hidden lg:table-cell">Processed</th>
+                        <th className="px-3 py-2 text-left font-semibold text-gray-700 uppercase text-[11px]">Rate</th>
+                        <th className="px-3 py-2 text-left font-semibold text-gray-700 uppercase text-[11px]">Submission</th>
+                        <th className="px-3 py-2 text-left font-semibold text-gray-700 uppercase text-[11px]">Processing</th>
                       </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-100">
@@ -1426,12 +1487,12 @@ export default function ManagerOperationsPage() {
                   </div>
                   <div className="overflow-x-auto">
                     <table className="min-w-full text-xs">
-                      <thead className="bg-gray-50">
+                      <thead className="bg-gray-100 border-b-2 border-gray-300">
                         <tr>
-                          <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase">Date</th>
-                          <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase">Pharmacy</th>
-                          <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase">Event Type</th>
-                          <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase hidden md:table-cell">Notes</th>
+                          <th className="px-3 py-2 text-left font-semibold text-gray-700 uppercase text-[11px]">Date</th>
+                          <th className="px-3 py-2 text-left font-semibold text-gray-700 uppercase text-[11px]">Pharmacy</th>
+                          <th className="px-3 py-2 text-left font-semibold text-gray-700 uppercase text-[11px]">Event Type</th>
+                          <th className="px-3 py-2 text-left font-semibold text-gray-700 uppercase text-[11px] hidden md:table-cell">Notes</th>
                         </tr>
                       </thead>
                       <tbody className="bg-white divide-y divide-gray-100">
@@ -1525,7 +1586,7 @@ function InvoiceTable({
     <div className="card overflow-hidden">
       <div className="overflow-x-auto">
         <table className="min-w-full text-xs">
-          <thead className="bg-gray-50">
+          <thead className="bg-gray-100 border-b-2 border-gray-300">
             <tr>
               <SortableHeader label="Invoice" field="invoiceNumber" sortConfig={sortConfig} onSort={onSort} className="text-left" />
               <SortableHeader label="Pharmacy" field="pharmacy" sortConfig={sortConfig} onSort={onSort} className="text-left" />
@@ -1533,7 +1594,7 @@ function InvoiceTable({
               <SortableHeader label="Amount" field="amount" sortConfig={sortConfig} onSort={onSort} className="text-right" />
               <SortableHeader label="Due" field="dueDate" sortConfig={sortConfig} onSort={onSort} className="text-left" />
               <SortableHeader label="Status" field="status" sortConfig={sortConfig} onSort={onSort} className="text-left" />
-              <th className="px-3 py-2 text-right font-medium text-gray-500 uppercase">Actions</th>
+              <th className="px-3 py-2 text-right font-semibold text-gray-700 uppercase text-[11px]">Actions</th>
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-100">

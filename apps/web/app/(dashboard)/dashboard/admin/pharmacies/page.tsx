@@ -338,15 +338,15 @@ export default function AdminPharmaciesPage() {
       {/* Pharmacies Table */}
       <div className="card overflow-hidden">
         <table className="min-w-full text-xs">
-          <thead className="bg-gray-50">
+          <thead className="bg-gray-100 border-b-2 border-gray-300">
             <tr>
-              <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase">Code</th>
-              <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase">Name</th>
-              <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase hidden md:table-cell">Location</th>
-              <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase hidden lg:table-cell">Phone</th>
-              <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase">Status</th>
-              <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase">Members</th>
-              <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase">Actions</th>
+              <th className="px-3 py-2 text-left font-semibold text-gray-700 uppercase text-[11px]">Code</th>
+              <th className="px-3 py-2 text-left font-semibold text-gray-700 uppercase text-[11px]">Name</th>
+              <th className="px-3 py-2 text-left font-semibold text-gray-700 uppercase text-[11px] hidden md:table-cell">Location</th>
+              <th className="px-3 py-2 text-left font-semibold text-gray-700 uppercase text-[11px] hidden lg:table-cell">Phone</th>
+              <th className="px-3 py-2 text-left font-semibold text-gray-700 uppercase text-[11px]">Status</th>
+              <th className="px-3 py-2 text-left font-semibold text-gray-700 uppercase text-[11px]">Members</th>
+              <th className="px-3 py-2 text-left font-semibold text-gray-700 uppercase text-[11px]">Actions</th>
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-100">

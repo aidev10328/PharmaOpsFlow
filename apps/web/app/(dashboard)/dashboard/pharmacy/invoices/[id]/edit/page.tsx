@@ -215,17 +215,14 @@ export default function EditInvoicePage() {
 
   return (
     <div className="max-w-3xl mx-auto">
-      <div className="mb-6">
-        <Link
-          href={`/dashboard/pharmacy/invoices/${invoiceId}`}
-          className="text-primary hover:text-primary-dark text-sm"
-        >
-          &larr; Back to Invoice
+      <div className="flex items-center justify-between mb-4">
+        <h1 className="page-title">Edit Invoice</h1>
+        <Link href={`/dashboard/pharmacy/invoices/${invoiceId}`} className="text-xs px-3 py-1.5 rounded-md border border-gray-200 bg-white text-gray-700 font-medium hover:bg-gray-50 shadow-sm">
+          Back to Invoice
         </Link>
       </div>
 
       <div className="card p-6">
-        <h1 className="page-title mb-6">Edit Invoice</h1>
 
         {/* Read-only pharmacy info */}
         <div className="mb-6 p-3 bg-gray-50 rounded-lg">

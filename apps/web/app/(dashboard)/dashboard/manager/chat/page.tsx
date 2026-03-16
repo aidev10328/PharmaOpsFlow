@@ -386,50 +386,77 @@ export default function ManagerChatPage() {
                   {/* Result Preview */}
                   {message.result && message.result.rows && message.result.rows.length > 0 && (
                     <div className="mt-3 bg-white rounded-lg overflow-hidden border border-gray-200">
-                      <table className="min-w-full text-xs">
-                        <thead className="bg-gray-50">
-                          <tr>
-                            <th className="px-2 py-1 text-left text-gray-500">Invoice</th>
-                            <th className="px-2 py-1 text-left text-gray-500">Pharmacy</th>
-                            <th className="px-2 py-1 text-right text-gray-500">Amount</th>
-                            <th className="px-2 py-1 text-left text-gray-500">Status</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-100">
-                          {message.result.rows.slice(0, 5).map((row: any, i: number) => (
-                            <tr key={i}>
-                              <td className="px-2 py-1 text-gray-900">
-                                {row.invoiceNumber || row.pharmacyCode || '-'}
-                              </td>
-                              <td className="px-2 py-1 text-gray-600">
-                                {row.pharmacy?.code || row.pharmacyName || '-'}
-                              </td>
-                              <td className="px-2 py-1 text-right text-gray-900">
-                                {row.amount ? formatCurrency(row.amount) : '-'}
-                              </td>
-                              <td className="px-2 py-1">
-                                {row.status && (
-                                  <span
-                                    className={`px-1 py-0.5 rounded text-xs ${STATUS_COLORS[row.status] || 'bg-gray-100'}`}
-                                  >
-                                    {row.status}
-                                  </span>
-                                )}
-                              </td>
+                      {message.result.rows[0]?.invoiceNumber !== undefined || message.result.rows[0]?.status !== undefined ? (
+                        /* Invoice results table */
+                        <table className="min-w-full text-xs">
+                          <thead className="bg-gray-100 border-b-2 border-gray-300">
+                            <tr>
+                              <th className="px-2 py-1 text-left text-gray-500">Invoice</th>
+                              <th className="px-2 py-1 text-left text-gray-500">Pharmacy</th>
+                              <th className="px-2 py-1 text-right text-gray-500">Amount</th>
+                              <th className="px-2 py-1 text-left text-gray-500">Status</th>
                             </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                      {message.result.rows.length > 5 && (
+                          </thead>
+                          <tbody className="divide-y divide-gray-100">
+                            {message.result.rows.slice(0, 5).map((row: any, i: number) => (
+                              <tr key={i}>
+                                <td className="px-2 py-1 text-gray-900">
+                                  {row.invoiceNumber || row.pharmacyCode || '-'}
+                                </td>
+                                <td className="px-2 py-1 text-gray-600">
+                                  {row.pharmacy?.code || row.pharmacyName || '-'}
+                                </td>
+                                <td className="px-2 py-1 text-right text-gray-900">
+                                  {row.amount ? formatCurrency(row.amount) : '-'}
+                                </td>
+                                <td className="px-2 py-1">
+                                  {row.status && (
+                                    <span
+                                      className={`px-1 py-0.5 rounded text-xs ${STATUS_COLORS[row.status] || 'bg-gray-100'}`}
+                                    >
+                                      {row.status}
+                                    </span>
+                                  )}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      ) : (
+                        /* Generic data table (vendors, pharmacies, users, etc.) */
+                        <table className="min-w-full text-xs">
+                          <thead className="bg-gray-100 border-b-2 border-gray-300">
+                            <tr>
+                              {Object.keys(message.result.rows[0]).filter(k => k !== 'id').map(key => (
+                                <th key={key} className="px-2 py-1 text-left text-gray-500 capitalize">
+                                  {key.replace(/([A-Z])/g, ' $1').trim()}
+                                </th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-100">
+                            {message.result.rows.slice(0, 10).map((row: any, i: number) => (
+                              <tr key={i}>
+                                {Object.entries(row).filter(([k]) => k !== 'id').map(([key, value]) => (
+                                  <td key={key} className="px-2 py-1 text-gray-900">
+                                    {String(value ?? '-')}
+                                  </td>
+                                ))}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      )}
+                      {message.result.rows.length > (message.result.rows[0]?.invoiceNumber !== undefined ? 5 : 10) && (
                         <div className="px-2 py-1 bg-gray-50 text-xs text-gray-500 text-center">
-                          +{message.result.rows.length - 5} more rows
+                          +{message.result.rows.length - (message.result.rows[0]?.invoiceNumber !== undefined ? 5 : 10)} more rows
                         </div>
                       )}
                     </div>
                   )}
 
                   {/* Metrics (for summary results) */}
-                  {message.result && message.result.metrics && !message.result.rows && (
+                  {message.result && message.result.metrics && (!message.result.rows || message.result.rows.length === 0) && (
                     <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
                       {Object.entries(message.result.metrics).map(([key, value]) => (
                         <div key={key} className="bg-white/10 rounded p-2">

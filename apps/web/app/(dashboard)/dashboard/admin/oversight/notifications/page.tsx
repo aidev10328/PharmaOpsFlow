@@ -34,7 +34,7 @@ function SortableHeader({
   const isActive = sortConfig.field === field;
   return (
     <th
-      className={`px-3 py-2 text-left font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100 select-none ${className}`}
+      className={`px-3 py-2 text-left font-semibold text-gray-700 uppercase text-[11px] cursor-pointer hover:bg-gray-200 select-none ${className}`}
       onClick={() => onSort(field)}
     >
       <div className="flex items-center gap-1">
@@ -221,15 +221,15 @@ export default function NotificationLogsPage() {
       <div className="card overflow-hidden">
         <div className="overflow-x-auto">
           <table className="min-w-full text-xs">
-            <thead className="bg-gray-50">
+            <thead className="bg-gray-100 border-b-2 border-gray-300">
               <tr>
                 <SortableHeader label="Sent At" field="sentAt" sortConfig={sortConfig} onSort={handleSort} />
                 <SortableHeader label="Channel" field="channel" sortConfig={sortConfig} onSort={handleSort} />
                 <SortableHeader label="Type" field="type" sortConfig={sortConfig} onSort={handleSort} />
                 <SortableHeader label="Pharmacy" field="pharmacy" sortConfig={sortConfig} onSort={handleSort} />
-                <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase hidden md:table-cell">Subject</th>
+                <th className="px-3 py-2 text-left font-semibold text-gray-700 uppercase text-[11px] hidden md:table-cell">Subject</th>
                 <SortableHeader label="Status" field="status" sortConfig={sortConfig} onSort={handleSort} />
-                <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase hidden lg:table-cell">Error</th>
+                <th className="px-3 py-2 text-left font-semibold text-gray-700 uppercase text-[11px] hidden lg:table-cell">Error</th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-100">

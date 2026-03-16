@@ -126,14 +126,14 @@ export default function AutomationHealthPage() {
         </div>
         <div className="overflow-x-auto">
           <table className="min-w-full text-xs">
-            <thead className="bg-gray-50">
+            <thead className="bg-gray-100 border-b-2 border-gray-300">
               <tr>
-                <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase">ID</th>
-                <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase">Invoice</th>
-                <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase">Provider</th>
-                <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase hidden md:table-cell">Error</th>
-                <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase">Date</th>
-                <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase">Actions</th>
+                <th className="px-3 py-2 text-left font-semibold text-gray-700 uppercase text-[11px]">ID</th>
+                <th className="px-3 py-2 text-left font-semibold text-gray-700 uppercase text-[11px]">Invoice</th>
+                <th className="px-3 py-2 text-left font-semibold text-gray-700 uppercase text-[11px]">Provider</th>
+                <th className="px-3 py-2 text-left font-semibold text-gray-700 uppercase text-[11px] hidden md:table-cell">Error</th>
+                <th className="px-3 py-2 text-left font-semibold text-gray-700 uppercase text-[11px]">Date</th>
+                <th className="px-3 py-2 text-left font-semibold text-gray-700 uppercase text-[11px]">Actions</th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-100">

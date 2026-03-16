@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
-import { SlaEventType, InvoiceStatus } from '@prisma/client';
+import { SlaEventType, InvoiceStatus, NotificationType } from '@prisma/client';
+import { NotificationPreferenceService } from '../admin/notification-preference.service';
 
 export interface SlaEvaluationResult {
   yearMonth: string;
@@ -32,7 +33,10 @@ export interface PharmacySlaStatus {
 export class SlaService {
   private readonly ORG_TIMEZONE = process.env.ORG_TIMEZONE || 'America/New_York';
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notifPrefService: NotificationPreferenceService,
+  ) {}
 
   /**
    * Get SLA due days for a pharmacy, falling back to org defaults
@@ -94,6 +98,9 @@ export class SlaService {
       // Ensure monthly requirement record exists
       await this.ensureMonthlyRequirement(pharmacy.id, evalMonth);
 
+      // Always refresh invoice counts so data is up to date
+      await this.updateInvoiceCounts(pharmacy.id, evalMonth);
+
       const dueDays = await this.getDueDays(pharmacy.id);
 
       // Check submission deadline (pharmacy-specific day)
@@ -147,6 +154,13 @@ export class SlaService {
         : !req || req.processedCount < req.expectedCount;
 
       if (needsReminder) {
+        // Check notification preference
+        const prefType = type === 'submission'
+          ? NotificationType.SLA_SUBMISSION_REMINDER
+          : NotificationType.SLA_PROCESSING_REMINDER;
+        const enabled = await this.notifPrefService.isNotificationEnabled(pharmacy.orgId, prefType);
+        if (!enabled) continue;
+
         // Check if reminder already sent (idempotent)
         const existingReminder = await this.prisma.slaEvent.findFirst({
           where: {
@@ -168,7 +182,7 @@ export class SlaService {
             },
           });
 
-          // Log notification (in production, would trigger actual notification)
+          // Log notification
           await this.prisma.notificationLog.create({
             data: {
               pharmacyId: pharmacy.id,
@@ -625,6 +639,7 @@ export class SlaService {
     });
 
     if (!existingViolation) {
+      // Always record the SLA event (compliance data)
       await this.prisma.slaEvent.create({
         data: {
           pharmacyId,
@@ -639,17 +654,24 @@ export class SlaService {
         },
       });
 
-      // Log notification
-      await this.prisma.notificationLog.create({
-        data: {
-          pharmacyId,
-          type: 'sla_violation',
-          channel: 'in_app',
-          subject: 'Invoice Submission Deadline Missed',
-          body: `Submission deadline missed for ${yearMonth}. Expected: ${req.expectedCount}, Submitted: ${req.submittedCount}`,
-          metadata: { yearMonth, type: 'submission' },
-        },
-      });
+      // Log notification only if enabled
+      const pharmacy = await this.prisma.pharmacy.findUnique({ where: { id: pharmacyId }, select: { orgId: true } });
+      const notifEnabled = pharmacy
+        ? await this.notifPrefService.isNotificationEnabled(pharmacy.orgId, NotificationType.SLA_SUBMISSION_VIOLATION)
+        : true;
+
+      if (notifEnabled) {
+        await this.prisma.notificationLog.create({
+          data: {
+            pharmacyId,
+            type: 'sla_violation',
+            channel: 'in_app',
+            subject: 'Invoice Submission Deadline Missed',
+            body: `Submission deadline missed for ${yearMonth}. Expected: ${req.expectedCount}, Submitted: ${req.submittedCount}`,
+            metadata: { yearMonth, type: 'submission' },
+          },
+        });
+      }
 
       return true;
     }
@@ -682,6 +704,7 @@ export class SlaService {
     });
 
     if (!existingViolation) {
+      // Always record the SLA event (compliance data)
       await this.prisma.slaEvent.create({
         data: {
           pharmacyId,
@@ -696,17 +719,24 @@ export class SlaService {
         },
       });
 
-      // Log notification
-      await this.prisma.notificationLog.create({
-        data: {
-          pharmacyId,
-          type: 'sla_violation',
-          channel: 'in_app',
-          subject: 'Invoice Processing Deadline Missed',
-          body: `Processing deadline missed for ${yearMonth}. Expected: ${req.expectedCount}, Processed: ${req.processedCount}`,
-          metadata: { yearMonth, type: 'processing' },
-        },
-      });
+      // Log notification only if enabled
+      const pharmacy = await this.prisma.pharmacy.findUnique({ where: { id: pharmacyId }, select: { orgId: true } });
+      const notifEnabled = pharmacy
+        ? await this.notifPrefService.isNotificationEnabled(pharmacy.orgId, NotificationType.SLA_PROCESSING_VIOLATION)
+        : true;
+
+      if (notifEnabled) {
+        await this.prisma.notificationLog.create({
+          data: {
+            pharmacyId,
+            type: 'sla_violation',
+            channel: 'in_app',
+            subject: 'Invoice Processing Deadline Missed',
+            body: `Processing deadline missed for ${yearMonth}. Expected: ${req.expectedCount}, Processed: ${req.processedCount}`,
+            metadata: { yearMonth, type: 'processing' },
+          },
+        });
+      }
 
       return true;
     }

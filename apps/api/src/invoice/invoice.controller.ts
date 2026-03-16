@@ -88,12 +88,12 @@ export class InvoiceController {
 
     // Return stats for assigned pharmacies
     if (req.user.role === Role.COMPANY_MANAGER) {
-      return this.invoiceService.getStats(undefined, req.user.orgId, req.user.id);
+      return this.invoiceService.getStats(undefined, req.user.orgId, req.user.id, month);
     }
 
     // For admin, return all stats
     if (req.user.role === Role.ADMIN) {
-      return this.invoiceService.getStats();
+      return this.invoiceService.getStats(undefined, undefined, undefined, month);
     }
 
     throw new ForbiddenException('Pharmacy ID required');

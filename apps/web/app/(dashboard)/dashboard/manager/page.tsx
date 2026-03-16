@@ -65,6 +65,43 @@ function formatCurrency(amount: number): string {
   }).format(amount);
 }
 
+function getCurrentMonth(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function formatMonthLabel(month: string): string {
+  const [year, m] = month.split('-');
+  const date = new Date(parseInt(year), parseInt(m) - 1);
+  return date.toLocaleString('default', { month: 'long', year: 'numeric' });
+}
+
+function getMonthOptions(): string[] {
+  const options: string[] = [];
+  const now = new Date();
+  for (let i = 0; i < 12; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    options.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+  }
+  return options;
+}
+
+function shiftMonth(month: string, delta: number): string {
+  const [y, m] = month.split('-').map(Number);
+  const d = new Date(y, m - 1 + delta, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function monthDateRange(month: string): { dateFrom: string; dateTo: string } {
+  const [y, m] = month.split('-').map(Number);
+  const start = new Date(y, m - 1, 1);
+  const end = new Date(y, m, 0);
+  return {
+    dateFrom: start.toISOString().split('T')[0],
+    dateTo: end.toISOString().split('T')[0],
+  };
+}
+
 export default function ManagerDashboard() {
   const { user, loading: authLoading } = useAuth();
   const router = useRouter();
@@ -72,6 +109,8 @@ export default function ManagerDashboard() {
   const [stats, setStats] = useState<InvoiceStats | null>(null);
   const [slaSummary, setSlaSummary] = useState<SlaSummaryResult | null>(null);
   const [loading, setLoading] = useState(true);
+  const [selectedMonth, setSelectedMonth] = useState(getCurrentMonth());
+  const [showMonthDropdown, setShowMonthDropdown] = useState(false);
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -86,13 +125,14 @@ export default function ManagerDashboard() {
 
   useEffect(() => {
     async function fetchDashboardData() {
+      setLoading(true);
       try {
-        const currentMonth = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`;
+        const { dateFrom, dateTo } = monthDateRange(selectedMonth);
 
         const [pharmaciesRes, statsRes, slaRes] = await Promise.all([
           apiFetch('/pharmacies'),
-          apiFetch('/invoices/stats'),
-          apiFetch(`/explore/sla?month=${currentMonth}`),
+          apiFetch(`/invoices/stats?month=${selectedMonth}`),
+          apiFetch(`/explore/sla?month=${selectedMonth}`),
         ]);
 
         if (pharmaciesRes.ok) setPharmacies(await pharmaciesRes.json());
@@ -108,7 +148,7 @@ export default function ManagerDashboard() {
     if (user && (user.role === 'COMPANY_MANAGER' || user.role === 'ADMIN')) {
       fetchDashboardData();
     }
-  }, [user]);
+  }, [user, selectedMonth]);
 
   if (authLoading || loading) {
     return (
@@ -168,9 +208,57 @@ export default function ManagerDashboard() {
             {user.org?.name || 'Your Organization'} &middot; {pharmacies.length} pharmacies
           </p>
         </div>
-        <span className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm font-medium">
-          Company Manager
-        </span>
+        {/* Month Picker */}
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setSelectedMonth(shiftMonth(selectedMonth, -1))}
+            className="p-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 text-gray-500 transition-colors"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+            </svg>
+          </button>
+          <div className="relative">
+            <button
+              onClick={() => setShowMonthDropdown(!showMonthDropdown)}
+              className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 text-sm font-medium text-gray-700 transition-colors"
+            >
+              <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" />
+              </svg>
+              {formatMonthLabel(selectedMonth)}
+              <svg className={`w-3.5 h-3.5 text-gray-400 transition-transform ${showMonthDropdown ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+            {showMonthDropdown && (
+              <div className="absolute right-0 mt-1 w-52 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50 max-h-64 overflow-y-auto">
+                {getMonthOptions().map((m) => (
+                  <button
+                    key={m}
+                    onClick={() => { setSelectedMonth(m); setShowMonthDropdown(false); }}
+                    className={`block w-full text-left px-4 py-2 text-sm transition-colors ${
+                      m === selectedMonth
+                        ? 'bg-primary-50 text-primary-700 font-medium'
+                        : 'text-gray-700 hover:bg-gray-50'
+                    }`}
+                  >
+                    {formatMonthLabel(m)}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          <button
+            onClick={() => setSelectedMonth(shiftMonth(selectedMonth, 1))}
+            disabled={selectedMonth >= getCurrentMonth()}
+            className="p-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 text-gray-500 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
+          </button>
+        </div>
       </div>
 
       {/* Section 1: Key Metric Cards */}

@@ -85,16 +85,29 @@ export default function ComplianceDashboardPage() {
     }
   }, [user, fetchSummary]);
 
+  const [runningEval, setRunningEval] = useState(false);
+  const [evalResult, setEvalResult] = useState<string | null>(null);
+
   const runEvaluation = async () => {
+    setRunningEval(true);
+    setError(null);
+    setEvalResult(null);
     try {
       const res = await apiFetch(`/v1/sla/run?yearMonth=${selectedMonth}`, {
         method: 'POST',
       });
       if (res.ok) {
+        const result = await res.json();
+        setEvalResult(`Evaluated ${result.pharmaciesEvaluated} pharmacies: ${result.submissionViolations} submission violations, ${result.processingViolations} processing violations`);
         await fetchSummary();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setError(data.message || 'Evaluation failed');
       }
     } catch (e) {
-      console.error('Failed to run evaluation:', e);
+      setError('Failed to run evaluation');
+    } finally {
+      setRunningEval(false);
     }
   };
 
@@ -154,8 +167,8 @@ export default function ComplianceDashboardPage() {
               </option>
             ))}
           </select>
-          <button onClick={runEvaluation} className="btn-secondary">
-            Run Evaluation
+          <button onClick={runEvaluation} disabled={runningEval} className="btn-secondary disabled:opacity-50">
+            {runningEval ? 'Running...' : 'Run Evaluation'}
           </button>
         </div>
       </div>
@@ -163,6 +176,11 @@ export default function ComplianceDashboardPage() {
       {error && (
         <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-lg mb-6">
           {error}
+        </div>
+      )}
+      {evalResult && (
+        <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg mb-6">
+          {evalResult}
         </div>
       )}
 
@@ -221,27 +239,27 @@ export default function ComplianceDashboardPage() {
             </div>
             <div className="overflow-x-auto">
               <table className="w-full">
-                <thead className="bg-gray-50">
+                <thead className="bg-gray-100 border-b-2 border-gray-300">
                   <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
                       Pharmacy
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
                       Status
                     </th>
-                    <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-center text-xs font-semibold text-gray-700 uppercase tracking-wider">
                       Submitted
                     </th>
-                    <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-center text-xs font-semibold text-gray-700 uppercase tracking-wider">
                       Processed
                     </th>
-                    <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-center text-xs font-semibold text-gray-700 uppercase tracking-wider">
                       Submission Deadline
                     </th>
-                    <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-center text-xs font-semibold text-gray-700 uppercase tracking-wider">
                       Processing Deadline
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
                       Events
                     </th>
                   </tr>

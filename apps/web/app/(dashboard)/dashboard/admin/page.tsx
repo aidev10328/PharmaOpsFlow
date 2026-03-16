@@ -38,6 +38,29 @@ export default function AdminDashboardPage() {
   const router = useRouter();
   const [metrics, setMetrics] = useState<MetricData | null>(null);
   const [loadingMetrics, setLoadingMetrics] = useState(true);
+  const [selectedMonth, setSelectedMonth] = useState(currentMonth());
+
+  // Build date range from selected month for endpoints that use dateFrom/dateTo
+  const monthDateRange = (month: string) => {
+    const [y, m] = month.split('-').map(Number);
+    const from = `${month}-01`;
+    const last = new Date(y, m, 0).getDate();
+    const to = `${month}-${String(last).padStart(2, '0')}`;
+    return { from, to };
+  };
+
+  // Generate last 12 months for dropdown
+  const monthOptions = () => {
+    const options: { value: string; label: string }[] = [];
+    const now = new Date();
+    for (let i = 0; i < 12; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const val = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      const label = d.toLocaleString('default', { month: 'long', year: 'numeric' });
+      options.push({ value: val, label });
+    }
+    return options;
+  };
 
   useEffect(() => {
     if (!loading && !user) {
@@ -54,15 +77,17 @@ export default function AdminDashboardPage() {
     if (!user || user.role !== 'ADMIN') return;
 
     async function fetchMetrics() {
+      setLoadingMetrics(true);
       try {
+        const { from, to } = monthDateRange(selectedMonth);
         const [pharmaciesRes, usersRes, invoicesRes, invoiceStatsRes, slaRes, automationRes, notificationsRes] = await Promise.all([
           apiFetch('/v1/admin/pharmacies').then(r => r.ok ? r.json() : []).catch(() => []),
           apiFetch('/v1/admin/users').then(r => r.ok ? r.json() : []).catch(() => []),
-          apiFetch('/v1/admin/oversight/invoices?limit=1').then(r => r.ok ? r.json() : { totalCount: 0 }).catch(() => ({ totalCount: 0 })),
-          apiFetch('/invoices/stats').then(r => r.ok ? r.json() : { statusCounts: {}, totalAmount: 0 }).catch(() => ({ statusCounts: {}, totalAmount: 0 })),
-          apiFetch(`/v1/admin/oversight/sla/summary?month=${currentMonth()}`).then(r => r.ok ? r.json() : null).catch(() => null),
+          apiFetch(`/v1/admin/oversight/invoices?limit=1&dateFrom=${from}&dateTo=${to}`).then(r => r.ok ? r.json() : { totalCount: 0 }).catch(() => ({ totalCount: 0 })),
+          apiFetch(`/invoices/stats?month=${selectedMonth}`).then(r => r.ok ? r.json() : { statusCounts: {}, totalAmount: 0 }).catch(() => ({ statusCounts: {}, totalAmount: 0 })),
+          apiFetch(`/v1/admin/oversight/sla/summary?month=${selectedMonth}`).then(r => r.ok ? r.json() : null).catch(() => null),
           apiFetch('/v1/admin/oversight/automation').then(r => r.ok ? r.json() : null).catch(() => null),
-          apiFetch('/v1/admin/oversight/notifications?limit=1').then(r => r.ok ? r.json() : { totalCount: 0 }).catch(() => ({ totalCount: 0 })),
+          apiFetch(`/v1/admin/oversight/notifications?limit=1&dateFrom=${from}&dateTo=${to}`).then(r => r.ok ? r.json() : { totalCount: 0 }).catch(() => ({ totalCount: 0 })),
         ]);
 
         const pharmacies = Array.isArray(pharmaciesRes) ? pharmaciesRes : [];
@@ -97,7 +122,7 @@ export default function AdminDashboardPage() {
     }
 
     fetchMetrics();
-  }, [user]);
+  }, [user, selectedMonth]);
 
   if (loading) {
     return (
@@ -125,6 +150,51 @@ export default function AdminDashboardPage() {
 
   return (
     <div className="space-y-3">
+      {/* Month Picker */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => {
+              const [y, m] = selectedMonth.split('-').map(Number);
+              const prev = new Date(y, m - 2, 1);
+              setSelectedMonth(`${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, '0')}`);
+            }}
+            className="p-1.5 rounded-md hover:bg-gray-100 text-gray-500 hover:text-gray-700 transition-colors"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
+          </button>
+          <select
+            value={selectedMonth}
+            onChange={(e) => setSelectedMonth(e.target.value)}
+            className="text-sm font-semibold text-gray-800 bg-white border border-gray-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 cursor-pointer"
+          >
+            {monthOptions().map((opt) => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))}
+          </select>
+          <button
+            onClick={() => {
+              const [y, m] = selectedMonth.split('-').map(Number);
+              const next = new Date(y, m, 1);
+              const nextVal = `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}`;
+              if (nextVal <= currentMonth()) setSelectedMonth(nextVal);
+            }}
+            disabled={selectedMonth === currentMonth()}
+            className="p-1.5 rounded-md hover:bg-gray-100 text-gray-500 hover:text-gray-700 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
+          </button>
+        </div>
+        {selectedMonth !== currentMonth() && (
+          <button
+            onClick={() => setSelectedMonth(currentMonth())}
+            className="text-xs text-primary-600 hover:text-primary-700 font-medium"
+          >
+            Current Month
+          </button>
+        )}
+      </div>
+
       {/* Metrics Cards */}
       {loadingMetrics ? (
         <div className="grid grid-cols-3 md:grid-cols-6 gap-2">
@@ -218,9 +288,9 @@ export default function AdminDashboardPage() {
 
       {/* Quick Links Grid */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        {/* Staff Management */}
+        {/* Organization */}
         <div className="card p-3">
-          <h2 className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-2">Staff Management</h2>
+          <h2 className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-2">Organization</h2>
           <div className="space-y-1">
             <QuickLink href="/dashboard/admin/users" label="Users" badge={metrics ? `${metrics.totalUsers}` : undefined} />
             <QuickLink href="/dashboard/admin/pharmacies" label="Pharmacies" badge={metrics ? `${metrics.activePharmacies}` : undefined} />
@@ -228,13 +298,13 @@ export default function AdminDashboardPage() {
           </div>
         </div>
 
-        {/* Reference Data */}
+        {/* Configuration */}
         <div className="card p-3">
-          <h2 className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-2">Reference Data</h2>
+          <h2 className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-2">Configuration</h2>
           <div className="space-y-1">
             <QuickLink href="/dashboard/admin/reference/invoice-types" label="Invoice Types" />
             <QuickLink href="/dashboard/admin/reference/vendors" label="Vendors" />
-            <QuickLink href="/dashboard/admin/requirements" label="Requirements" />
+            <QuickLink href="/dashboard/admin/requirements" label="Invoice Schedules" />
           </div>
         </div>
 

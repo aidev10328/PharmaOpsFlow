@@ -147,10 +147,10 @@ export class SlaSummaryDto {
 }
 
 // Query Plan types for LLM integration
-export type QueryIntent = 'invoice_search' | 'invoice_summary' | 'sla_summary' | 'invoice_detail' | 'help';
+export type QueryIntent = 'invoice_search' | 'invoice_summary' | 'sla_summary' | 'invoice_detail' | 'platform_stats' | 'help';
 
 export class QueryPlanDto {
-  @IsEnum(['invoice_search', 'invoice_summary', 'sla_summary', 'invoice_detail', 'help'])
+  @IsEnum(['invoice_search', 'invoice_summary', 'sla_summary', 'invoice_detail', 'platform_stats', 'help'])
   intent: QueryIntent;
 
   @IsOptional()

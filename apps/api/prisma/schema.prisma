@@ -105,9 +105,10 @@ model Org {
   users                User[]
   invoiceTypes         InvoiceType[]
   vendors              Vendor[]
-  requiredInvoiceTypes RequiredInvoiceType[]
-  frequencies          Frequency[]
-  invoiceCategories    InvoiceCategory[]
+  requiredInvoiceTypes      RequiredInvoiceType[]
+  frequencies               Frequency[]
+  invoiceCategories         InvoiceCategory[]
+  notificationPreferences   NotificationPreference[]
 }
 
 model Pharmacy {
@@ -200,6 +201,7 @@ model User {
   uploadedFiles       InvoiceFile[]
   notificationLogs    NotificationLog[]
   auditLogs           AuditLog[]        @relation("auditLogs")
+  supportTickets      SupportTicket[]   @relation("supportTicketsReported")
 
   @@index([orgId])
 }
@@ -588,6 +590,42 @@ model NotificationLog {
 }
 
 // ============================================
+// Notification Preferences
+// ============================================
+
+enum NotificationType {
+  SLA_SUBMISSION_REMINDER
+  SLA_PROCESSING_REMINDER
+  SLA_SUBMISSION_VIOLATION
+  SLA_PROCESSING_VIOLATION
+  INVOICE_SUBMITTED
+  INVOICE_APPROVED
+  INVOICE_REJECTED
+  INVOICE_OVERDUE
+  AI_EXTRACTION_FAILED
+  USER_REGISTERED
+  PHARMACY_DEACTIVATED
+}
+
+model NotificationPreference {
+  id               String           @id @default(uuid())
+  orgId            String
+  notificationType NotificationType
+  enabled          Boolean          @default(true)
+  channels         Json             @default("[\"in_app\"]")
+  config           Json?
+  recipientRoles   Json             @default("[\"ADMIN\"]")
+  description      String?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  org Org @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, notificationType])
+  @@index([orgId])
+}
+
+// ============================================
 // Audit Log Model
 // ============================================
 
@@ -606,4 +644,174 @@ model AuditLog {
   @@index([actorUserId])
   @@index([entityType, entityId])
   @@index([createdAt])
+}
+
+// ============================================
+// Support Ticket System
+// ============================================
+
+enum SupportTicketStatus {
+  SUBMITTED
+  UNDER_REVIEW
+  IN_PROGRESS
+  NEED_MORE_INFO
+  FIXED
+  RELEASED
+  CLOSED
+}
+
+enum SupportIssueType {
+  BUG
+  FUNCTIONAL_ISSUE
+  PERFORMANCE_ISSUE
+  UI_UX_ISSUE
+  DATA_ISSUE
+  QUESTION
+  FEATURE_REQUEST
+}
+
+enum SupportBusinessImpact {
+  BLOCKING
+  MAJOR
+  MINOR
+  COSMETIC
+  SUGGESTION
+}
+
+enum SupportSeverity {
+  CRITICAL
+  HIGH
+  MEDIUM
+  LOW
+  INFO
+}
+
+enum SupportAttachmentType {
+  SCREENSHOT
+  ANNOTATED_SCREENSHOT
+  AUDIO
+  DOCUMENT
+  OTHER
+}
+
+model SupportTicket {
+  id                  String                @id @default(uuid())
+  ticketNumber        String                @unique // e.g., "SUP-00001"
+  portalKey           String                @default("pharmaopsflow")
+  tenantId            String?               // orgId for multi-tenant scoping
+
+  // Reporter info (denormalized for portability)
+  reportedByUserId    String
+  reportedByName      String
+  reportedByEmail     String
+
+  // User-provided fields
+  issueType           SupportIssueType
+  userTitle           String?               // Optional user-entered title
+  userDescription     String                @db.Text
+  voiceTranscript     String?               @db.Text
+
+  // AI/structured fields
+  structuredTitle     String?
+  structuredSummary   String?               @db.Text
+  stepsToReproduce    Json?                 // string[]
+  expectedResult      String?               @db.Text
+  actualResult        String?               @db.Text
+
+  // Classification
+  businessImpact      SupportBusinessImpact
+  severity            SupportSeverity       @default(MEDIUM)
+  category            String?               // Module/area of the portal
+
+  // Status
+  currentStatus       SupportTicketStatus   @default(SUBMITTED)
+
+  // Context capture
+  environment         String?               // e.g., "production", "staging"
+  pageUrl             String?
+  pageRoute           String?
+  pageTitle           String?
+  browserInfo         Json?                 // { browser, version, os, etc. }
+  viewportInfo        Json?                 // { width, height }
+  consoleErrors       Json?                 // Recent console errors
+  failedApiRequests   Json?                 // Recent failed API calls
+  metadata            Json?                 // Any additional context
+
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime              @updatedAt
+
+  reporter            User                  @relation("supportTicketsReported", fields: [reportedByUserId], references: [id], onDelete: Restrict)
+  attachments         SupportTicketAttachment[]
+  comments            SupportTicketComment[]
+  statusHistory       SupportTicketStatusHistory[]
+  assignments         SupportTicketAssignment[]
+
+  @@index([reportedByUserId])
+  @@index([currentStatus])
+  @@index([tenantId])
+  @@index([issueType])
+  @@index([severity])
+  @@index([createdAt])
+  @@index([ticketNumber])
+}
+
+model SupportTicketAttachment {
+  id              String                @id @default(uuid())
+  ticketId        String
+  fileName        String
+  fileType        String                // MIME type
+  fileSize        Int                   // bytes
+  storagePath     String
+  attachmentType  SupportAttachmentType @default(OTHER)
+  createdAt       DateTime              @default(now())
+
+  ticket SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@index([ticketId])
+}
+
+model SupportTicketComment {
+  id              String   @id @default(uuid())
+  ticketId        String
+  authorUserId    String
+  authorName      String
+  authorRole      String   // Role at time of comment
+  isInternal      Boolean  @default(false) // Internal dev notes vs user-visible
+  commentText     String   @db.Text
+  createdAt       DateTime @default(now())
+
+  ticket SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@index([ticketId])
+  @@index([ticketId, createdAt])
+}
+
+model SupportTicketStatusHistory {
+  id              String              @id @default(uuid())
+  ticketId        String
+  oldStatus       SupportTicketStatus
+  newStatus       SupportTicketStatus
+  changedByUserId String
+  changedByName   String
+  note            String?             @db.Text
+  createdAt       DateTime            @default(now())
+
+  ticket SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@index([ticketId])
+  @@index([ticketId, createdAt])
+}
+
+model SupportTicketAssignment {
+  id               String   @id @default(uuid())
+  ticketId         String
+  assignedToUserId String
+  assignedToName   String
+  assignedByUserId String
+  assignedAt       DateTime @default(now())
+
+  ticket SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@index([ticketId])
+  @@index([assignedToUserId])
 }

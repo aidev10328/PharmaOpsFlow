@@ -126,6 +126,7 @@ export class RequirementsController {
   async getPharmacyRequirementsSummary(
     @Param('pharmacyId') pharmacyId: string,
     @Request() req: any,
+    @Query('yearMonth') yearMonth?: string,
   ) {
     // Check pharmacy access for non-admin users
     if (req.user.role !== 'ADMIN') {
@@ -136,7 +137,7 @@ export class RequirementsController {
         throw new ForbiddenException('You do not have access to this pharmacy');
       }
     }
-    return this.requirementsService.getPharmacyRequirementsSummary(pharmacyId);
+    return this.requirementsService.getPharmacyRequirementsSummary(pharmacyId, yearMonth);
   }
 
   // ========== REQUIREMENT CRUD ==========

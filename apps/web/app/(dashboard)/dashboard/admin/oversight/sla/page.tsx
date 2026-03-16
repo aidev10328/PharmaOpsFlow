@@ -36,7 +36,7 @@ function SortableHeader({
   const isActive = sortConfig.field === field;
   return (
     <th
-      className={`px-3 py-2 text-left font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100 select-none ${className}`}
+      className={`px-3 py-2 text-left font-semibold text-gray-700 uppercase text-[11px] cursor-pointer hover:bg-gray-200 select-none ${className}`}
       onClick={() => onSort(field)}
     >
       <div className="flex items-center gap-1">
@@ -278,7 +278,7 @@ export default function SlaOversightPage() {
         </div>
         <div className="overflow-x-auto">
           <table className="min-w-full text-xs">
-            <thead className="bg-gray-50">
+            <thead className="bg-gray-100 border-b-2 border-gray-300">
               <tr>
                 <SortableHeader label="Pharmacy" field="pharmacyName" sortConfig={pharmacySort} onSort={handlePharmacySort} />
                 <SortableHeader label="Code" field="pharmacyCode" sortConfig={pharmacySort} onSort={handlePharmacySort} className="hidden sm:table-cell" />
@@ -306,13 +306,25 @@ export default function SlaOversightPage() {
                     </span>
                   </td>
                   <td className="px-3 py-2">
-                    <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold ${p.submissionMissed > 0 ? 'bg-red-50 text-red-700' : 'bg-emerald-50 text-emerald-700'}`}>
-                      {p.submissionMissed > 0 ? `${p.submissionMissed} miss` : 'Met'}
+                    <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold ${
+                      p.submissionMissed > 0 ? 'bg-red-50 text-red-700' :
+                      p.submittedCount === 0 && p.totalExpected > 0 ? 'bg-gray-100 text-gray-500' :
+                      'bg-emerald-50 text-emerald-700'
+                    }`}>
+                      {p.submissionMissed > 0 ? `${p.submissionMissed} miss` :
+                       p.submittedCount === 0 && p.totalExpected > 0 ? 'None' : 'Met'}
                     </span>
                   </td>
                   <td className="px-3 py-2">
-                    <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold ${p.processingMissed > 0 ? 'bg-red-50 text-red-700' : p.pending > 0 ? 'bg-amber-50 text-amber-700' : 'bg-emerald-50 text-emerald-700'}`}>
-                      {p.processingMissed > 0 ? `${p.processingMissed} miss` : p.pending > 0 ? `${p.pending} pend` : 'Met'}
+                    <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold ${
+                      p.processingMissed > 0 ? 'bg-red-50 text-red-700' :
+                      p.submittedCount === 0 && p.totalExpected > 0 ? 'bg-gray-100 text-gray-500' :
+                      p.pending > 0 ? 'bg-amber-50 text-amber-700' :
+                      'bg-emerald-50 text-emerald-700'
+                    }`}>
+                      {p.processingMissed > 0 ? `${p.processingMissed} miss` :
+                       p.submittedCount === 0 && p.totalExpected > 0 ? 'N/A' :
+                       p.pending > 0 ? `${p.pending} pend` : 'Met'}
                     </span>
                   </td>
                 </tr>
@@ -332,7 +344,7 @@ export default function SlaOversightPage() {
       </div>
 
       {/* SLA Events */}
-      <div className="card overflow-hidden">
+      <div className="card overflow-hidden mt-6">
         <div className="px-3 py-2 bg-gray-50 border-b">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
             <h3 className="text-xs font-heading font-semibold text-gray-900">SLA Events ({eventsTotalCount})</h3>
@@ -353,14 +365,14 @@ export default function SlaOversightPage() {
         </div>
         <div className="overflow-x-auto">
           <table className="min-w-full text-xs">
-            <thead className="bg-gray-50">
+            <thead className="bg-gray-100 border-b-2 border-gray-300">
               <tr>
                 <SortableHeader label="Date" field="createdAt" sortConfig={eventsSort} onSort={handleEventsSort} />
                 <SortableHeader label="Pharmacy" field="pharmacy" sortConfig={eventsSort} onSort={handleEventsSort} />
                 <SortableHeader label="Event Type" field="eventType" sortConfig={eventsSort} onSort={handleEventsSort} />
                 <SortableHeader label="Month" field="yearMonth" sortConfig={eventsSort} onSort={handleEventsSort} />
-                <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase hidden md:table-cell">Notes</th>
-                <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase hidden lg:table-cell">Invoice</th>
+                <th className="px-3 py-2 text-left font-semibold text-gray-700 uppercase text-[11px] hidden md:table-cell">Notes</th>
+                <th className="px-3 py-2 text-left font-semibold text-gray-700 uppercase text-[11px] hidden lg:table-cell">Invoice</th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-100">

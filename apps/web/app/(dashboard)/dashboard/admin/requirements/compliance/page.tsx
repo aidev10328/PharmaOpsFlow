@@ -45,7 +45,7 @@ function SortableHeader({
   const isActive = sortConfig.field === field;
   return (
     <th
-      className={`px-3 py-2 font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100 select-none ${className}`}
+      className={`px-3 py-2 font-semibold text-gray-700 uppercase text-[11px] cursor-pointer hover:bg-gray-200 select-none ${className}`}
       onClick={() => onSort(field)}
     >
       <div className="flex items-center gap-1">
@@ -229,7 +229,7 @@ export default function CompliancePage() {
       <div className="card overflow-hidden">
         <div className="overflow-x-auto">
           <table className="min-w-full text-xs">
-            <thead className="bg-gray-50">
+            <thead className="bg-gray-100 border-b-2 border-gray-300">
               <tr>
                 <SortableHeader label="Pharmacy" field="pharmacyName" sortConfig={sortConfig} onSort={handleSort} className="text-left" />
                 <SortableHeader label="Total" field="totalRequirements" sortConfig={sortConfig} onSort={handleSort} className="text-center" />
