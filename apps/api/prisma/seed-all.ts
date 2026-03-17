@@ -1,4 +1,4 @@
-import { PrismaClient, InvoiceStatus, EntryMethod, DocumentType, RequirementFrequency } from '@prisma/client';
+import { PrismaClient, RequirementFrequency } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import { execSync } from 'child_process';
 import * as path from 'path';
@@ -14,25 +14,17 @@ import * as path from 'path';
  *     - 10 Pharmacies
  *     - 12 Users (admin, manager, 10 pharmacy users)
  *     - Manager ↔ Pharmacy assignments
- *     - Reference data (frequencies, categories, invoice types, vendors)
- *     - 50+ Sample invoices in various statuses
- *     - Monthly invoice requirements (SLA data)
- *     - SLA events, notification logs, support tickets
- *   STEP 3: Requirements — creates real invoice requirements for 4 pharmacies:
- *     - Branch Brook Pharmacy (15 requirements)
- *     - Hill Pharmacy (13 requirements)
- *     - Mason Pharmacy (16 requirements)
- *     - VIM Drugs (18 requirements)
- *     - 19 invoice types, 29 vendors from the real spreadsheet
+ *     - Reference data (frequencies, categories)
+ *     - SLA monthly requirements, events, notifications
+ *     - Support tickets
+ *   STEP 3: Requirements — creates real data for 4 pharmacies:
+ *     - 19 Invoice types, 29 Vendors (from real spreadsheet)
+ *     - Branch Brook (15), Hill (13), Mason (16), VIM Drugs (18) requirements
  *     - Requirement instances for current month + next 2 months
  *
  * Usage:
  *   cd apps/api
  *   npx ts-node --transpile-only prisma/seed-all.ts
- *
- * Prerequisites:
- *   - DATABASE_URL set in .env
- *   - PostgreSQL running and accessible
  *
  * Credentials after seed:
  *   ADMIN:            admin@local / admin123
@@ -42,18 +34,8 @@ import * as path from 'path';
 
 const prisma = new PrismaClient();
 
-// ─── Utilities ───────────────────────────────────────────────
-
 function randomInt(min: number, max: number): number {
   return Math.floor(Math.random() * (max - min + 1)) + min;
-}
-
-function randomDecimal(min: number, max: number): number {
-  return Math.round((Math.random() * (max - min) + min) * 100) / 100;
-}
-
-function randomElement<T>(arr: T[]): T {
-  return arr[Math.floor(Math.random() * arr.length)];
 }
 
 function addDays(date: Date, days: number): Date {
@@ -90,14 +72,13 @@ async function runSchema() {
   }
 }
 
-// ─── STEP 2: Demo Data ──────────────────────────────────────
+// ─── STEP 2: Base Data ──────────────────────────────────────
 
-async function seedDemoData() {
+async function seedBaseData() {
   console.log('╔══════════════════════════════════════════════╗');
-  console.log('║  STEP 2: Demo Data (Users, Invoices, etc.)   ║');
+  console.log('║  STEP 2: Base Data (Org, Users, Pharmacies)  ║');
   console.log('╚══════════════════════════════════════════════╝\n');
 
-  // Hash passwords
   const password = await bcrypt.hash('password123', 10);
   const adminPassword = await bcrypt.hash('admin123', 10);
 
@@ -236,10 +217,9 @@ async function seedDemoData() {
   }
   console.log(`  ✓ Manager assigned to all ${pharmacies.length} pharmacies`);
 
-  // ── 5. Reference Data ──
+  // ── 5. Frequencies & Categories (reference data) ──
   console.log('\nCreating reference data...');
 
-  // Frequencies (including ONE_TIME for requirements)
   const frequencyData = [
     { code: 'WEEKLY', name: 'Weekly', description: 'Every week', sortOrder: 1 },
     { code: 'BI_WEEKLY', name: 'Bi-Weekly', description: 'Every two weeks', sortOrder: 2 },
@@ -254,7 +234,6 @@ async function seedDemoData() {
   }
   console.log(`  ✓ ${frequencyData.length} frequencies`);
 
-  // Invoice Categories
   const categoryData = [
     { code: 'INVOICE', name: 'Invoice', description: 'Standard vendor invoice', sortOrder: 1 },
     { code: 'STATEMENT', name: 'Statement', description: 'Account statement', sortOrder: 2 },
@@ -266,205 +245,11 @@ async function seedDemoData() {
   }
   console.log(`  ✓ ${categoryData.length} invoice categories`);
 
-  // ── All Invoice Types (merged: 5 base + 19 from requirements spreadsheet) ──
-  const allInvoiceTypeDefs = [
-    // Base types
-    { code: 'RENT', name: 'Rent', description: 'Rent and lease payments', isRequired: true },
-    { code: 'ELECTRICITY', name: 'Electricity', description: 'Electricity utility bills', isRequired: true },
-    { code: 'VENDOR_INVOICE', name: 'Vendor Invoice', description: 'Drug purchases from wholesalers', isRequired: false },
-    { code: 'INTERNET', name: 'Internet', description: 'Internet and telecom services', isRequired: false },
-    { code: 'INSURANCE', name: 'Insurance', description: 'Insurance premiums', isRequired: false },
-    // Requirements spreadsheet types
-    { code: 'PHARMACY_SOFTWARE', name: 'Pharmacy Software Payment Bill', description: 'Pharmacy software fees', isRequired: false },
-    { code: 'COPY_MACHINE', name: 'Copy Machine Payment', description: 'Copy machine lease/service', isRequired: false },
-    { code: 'GARBAGE_RECYCLING', name: 'Garbage Removal - Recycling', description: 'Waste removal services', isRequired: false },
-    { code: 'CARE_CLAIM', name: 'Care Claim Monthly Fee', description: 'Care claim processing fees', isRequired: false },
-    { code: 'ELECTRICAL_GAS', name: 'Electrical & Gas', description: 'Electric and gas utilities', isRequired: false },
-    { code: 'GOVT_TAXES', name: 'Govt Taxes', description: 'Government tax payments', isRequired: false },
-    { code: 'FIRE_ALARM', name: 'Fire Alarm', description: 'Fire alarm monitoring service', isRequired: false },
-    { code: 'LABELS_VIALS', name: 'Labels & Vials', description: 'Pharmacy labels and vials supply', isRequired: false },
-    { code: 'WHOLESALE_1', name: 'Whole Sale Supplier - 1', description: 'Primary wholesale supplier', isRequired: false },
-    { code: 'WHOLESALE_2', name: 'Whole Sale Supplier - 2', description: 'Secondary wholesale supplier', isRequired: false },
-    { code: 'WHOLESALE_3', name: 'Whole Sale Supplier - 3', description: 'Tertiary wholesale supplier', isRequired: false },
-    { code: 'WHOLESALE_4', name: 'Whole Sale Supplier - 4', description: 'Wholesale supplier 4', isRequired: false },
-    { code: 'WHOLESALE_5', name: 'Whole Sale Supplier - 5', description: 'Wholesale supplier 5', isRequired: false },
-    { code: 'WHOLESALE_6', name: 'Whole Sale Supplier - 6', description: 'Wholesale supplier 6', isRequired: false },
-    { code: 'WHOLESALE_7', name: 'Whole Sale Supplier - 7', description: 'Wholesale supplier 7', isRequired: false },
-    { code: 'WHOLESALE_8', name: 'Whole Sale Supplier - 8', description: 'Wholesale supplier 8', isRequired: false },
-    { code: 'PASSPORT_PHOTOS', name: 'Passport Photos', description: 'Passport photo services', isRequired: false },
-  ];
-
-  const invoiceTypeMap: Record<string, any> = {};
-  for (const data of allInvoiceTypeDefs) {
-    const it = await prisma.invoiceType.create({
-      data: { orgId: org.id, code: data.code, name: data.name, description: data.description, isRequired: data.isRequired },
-    });
-    invoiceTypeMap[data.code] = it;
-  }
-  console.log(`  ✓ ${allInvoiceTypeDefs.length} invoice types`);
-
-  // ── All Vendors (merged: 4 base + 29 from requirements spreadsheet) ──
-  const allVendorDefs = [
-    // Base vendors
-    { code: 'MCKESSON_CORP', name: 'McKesson Corporation', paymentTerms: 'Net 30', email: 'ar@mckesson.com', phone: '1-800-555-0101', pharmacyId: null as string | null },
-    { code: 'CARDINAL_HEALTH', name: 'Cardinal Health', paymentTerms: 'Net 30', email: 'payments@cardinalhealth.com', phone: '1-800-555-0102', pharmacyId: null as string | null },
-    { code: 'NAT_GRID', name: 'National Grid Electric', paymentTerms: 'Net 21', email: 'business@nationalgrid.com', phone: '1-800-555-0109', pharmacyId: null as string | null },
-    { code: 'ELM_LOCAL', name: 'Elmhurst Local Supply Co.', paymentTerms: 'Net 15', email: 'orders@elmhurstlocal.com', phone: '(718) 424-9900', pharmacyId: pharmacies[0].id },
-    // Requirements spreadsheet vendors
-    { code: 'BEST_RX', name: 'Best RX', paymentTerms: null, email: null, phone: null, pharmacyId: null as string | null },
-    { code: 'BLUEBIRD_COPIER', name: 'Bluebird Copier', paymentTerms: null, email: null, phone: null, pharmacyId: null as string | null },
-    { code: 'CALI_CARTING', name: 'Cali Carting', paymentTerms: null, email: null, phone: null, pharmacyId: null as string | null },
-    { code: 'OMNISYS', name: 'Omnisys', paymentTerms: null, email: null, phone: null, pharmacyId: null as string | null },
-    { code: 'OPTIMUM', name: 'Optimum', paymentTerms: null, email: null, phone: null, pharmacyId: null as string | null },
-    { code: 'PSEG', name: 'PSE&G', paymentTerms: null, email: null, phone: null, pharmacyId: null as string | null },
-    { code: 'MILAN_PROPERTIES', name: 'Milan Properties', paymentTerms: null, email: null, phone: null, pharmacyId: null as string | null },
-    { code: 'NJ_TAX_DEPT', name: 'NJ Div of Tax Department', paymentTerms: null, email: null, phone: null, pharmacyId: null as string | null },
-    { code: 'PROTEK_SECURITY', name: 'Pro-Tek Security', paymentTerms: null, email: null, phone: null, pharmacyId: null as string | null },
-    { code: 'MC_CRACKEN', name: 'MC Cracken', paymentTerms: null, email: null, phone: null, pharmacyId: null as string | null },
-    { code: 'KINRAY', name: 'Kinray', paymentTerms: null, email: null, phone: null, pharmacyId: null as string | null },
-    { code: 'MCKESSON', name: 'McKesson', paymentTerms: null, email: null, phone: null, pharmacyId: null as string | null },
-    { code: 'AMERISOURCE', name: 'Amerisource', paymentTerms: null, email: null, phone: null, pharmacyId: null as string | null },
-    { code: 'ANDA', name: 'ANDA', paymentTerms: null, email: null, phone: null, pharmacyId: null as string | null },
-    { code: 'TOP_RX', name: 'Top RX', paymentTerms: null, email: null, phone: null, pharmacyId: null as string | null },
-    { code: 'CON_ED', name: 'Con Ed', paymentTerms: null, email: null, phone: null, pharmacyId: null as string | null },
-    { code: 'LANGSAM_PROPERTIES', name: 'Langsam Properties', paymentTerms: null, email: null, phone: null, pharmacyId: null as string | null },
-    { code: '5_BOROUGH_WASTE', name: '5 Borough Waste Removal', paymentTerms: null, email: null, phone: null, pharmacyId: null as string | null },
-    { code: 'WORLD_COPIER', name: 'World Copier', paymentTerms: null, email: null, phone: null, pharmacyId: null as string | null },
-    { code: 'AAA_ID_PASSPORT', name: 'AAA ID Passport', paymentTerms: null, email: null, phone: null, pharmacyId: null as string | null },
-    { code: 'TOP_ALARM', name: 'Top Alarm Systems', paymentTerms: null, email: null, phone: null, pharmacyId: null as string | null },
-    { code: 'SOPHER_MGMT', name: 'Sopher Management', paymentTerms: null, email: null, phone: null, pharmacyId: null as string | null },
-    { code: 'JLC_COPY', name: 'JLC Copy Inc.', paymentTerms: null, email: null, phone: null, pharmacyId: null as string | null },
-    { code: 'CITY_MED_RX', name: 'City Med Rx', paymentTerms: null, email: null, phone: null, pharmacyId: null as string | null },
-    { code: 'SPECTRUM', name: 'Spectrum', paymentTerms: null, email: null, phone: null, pharmacyId: null as string | null },
-    { code: 'FRIEDLAND_PROPERTIES', name: 'Friedland Properties', paymentTerms: null, email: null, phone: null, pharmacyId: null as string | null },
-    { code: 'ACTION_ENV', name: 'Action Env. Services', paymentTerms: null, email: null, phone: null, pharmacyId: null as string | null },
-    { code: 'BOB_BILA', name: 'Bob-Bila', paymentTerms: null, email: null, phone: null, pharmacyId: null as string | null },
-    { code: 'JJJ_DISTRIBUTROS', name: 'JJJ Distributros', paymentTerms: null, email: null, phone: null, pharmacyId: null as string | null },
-  ];
-
-  const vendorMap: Record<string, any> = {};
-  for (const data of allVendorDefs) {
-    const v = await prisma.vendor.create({
-      data: {
-        orgId: org.id,
-        name: data.name,
-        paymentTerms: data.paymentTerms,
-        email: data.email,
-        phone: data.phone,
-        pharmacyId: data.pharmacyId,
-      },
-    });
-    vendorMap[data.code] = v;
-  }
-  console.log(`  ✓ ${allVendorDefs.length} vendors`);
-
-  // Required Invoice Types
-  for (const it of Object.values(invoiceTypeMap).filter((t: any) => t.isRequired)) {
-    await prisma.requiredInvoiceType.create({
-      data: { orgId: org.id, invoiceTypeId: it.id },
-    });
-  }
-  console.log(`  ✓ Required invoice types configured`);
-
-  // ── 6. Sample Invoices ──
-  console.log('\nCreating sample invoices...');
+  // ── 6. SLA Monthly Requirements ──
+  console.log('\nCreating SLA monthly requirements...');
   const now = new Date();
   const currentYear = now.getFullYear();
   const currentMonth = now.getMonth();
-
-  const statuses: InvoiceStatus[] = ['DRAFT', 'SUBMITTED', 'APPROVED', 'SCHEDULED', 'PAID', 'REJECTED', 'NEEDS_INFO'];
-  const statusWeights = [5, 10, 10, 5, 40, 5, 5];
-  let invoiceCount = 0;
-
-  // Use only the base invoice types for sample invoices
-  const baseInvoiceTypes = ['RENT', 'ELECTRICITY', 'VENDOR_INVOICE', 'INTERNET', 'INSURANCE'].map(c => invoiceTypeMap[c]);
-  const baseVendors = ['MCKESSON_CORP', 'CARDINAL_HEALTH', 'NAT_GRID', 'ELM_LOCAL'].map(c => vendorMap[c]);
-
-  function weightedStatus(): InvoiceStatus {
-    const total = statusWeights.reduce((a, b) => a + b, 0);
-    let r = Math.random() * total;
-    for (let i = 0; i < statuses.length; i++) {
-      r -= statusWeights[i];
-      if (r <= 0) return statuses[i];
-    }
-    return 'PAID';
-  }
-
-  for (const pharmacy of pharmacies) {
-    const count = randomInt(5, 8);
-    for (let j = 0; j < count; j++) {
-      const monthOffset = randomInt(0, 2);
-      const invoiceMonth = new Date(currentYear, currentMonth - monthOffset, 1);
-      const invDate = new Date(currentYear, currentMonth - monthOffset, randomInt(1, 28));
-      const dueDate = addDays(invDate, randomInt(15, 45));
-      const status = weightedStatus();
-      const vendor = randomElement(baseVendors.filter(v => !v.pharmacyId || v.pharmacyId === pharmacy.id));
-      const invoiceType = randomElement(baseInvoiceTypes);
-      const amount = randomDecimal(200, 15000);
-      const invNumber = `INV-${pharmacy.code}-${invoiceMonth.getFullYear()}${String(invoiceMonth.getMonth() + 1).padStart(2, '0')}-${String(j + 1).padStart(3, '0')}`;
-
-      const invoiceData: any = {
-        pharmacyId: pharmacy.id,
-        vendorId: vendor.id,
-        invoiceTypeId: invoiceType.id,
-        invoiceNumber: invNumber,
-        documentType: 'INVOICE' as DocumentType,
-        invoiceDate: invDate,
-        dueDate: dueDate,
-        amount: amount,
-        currency: 'USD',
-        description: `${invoiceType.name} - ${vendor.name}`,
-        status: status,
-        entryMethod: 'MANUAL' as EntryMethod,
-        needsReview: status === 'NEEDS_INFO',
-      };
-
-      if (['SUBMITTED', 'APPROVED', 'SCHEDULED', 'PAID', 'REJECTED', 'NEEDS_INFO'].includes(status)) {
-        invoiceData.submittedAt = addDays(invDate, randomInt(1, 5));
-      }
-      if (['APPROVED', 'SCHEDULED', 'PAID'].includes(status)) {
-        invoiceData.approvedAt = addDays(invoiceData.submittedAt || invDate, randomInt(1, 3));
-        invoiceData.approvedById = admin.id;
-      }
-      if (['SCHEDULED', 'PAID'].includes(status)) {
-        invoiceData.scheduledPaymentDate = addDays(invoiceData.approvedAt || invDate, randomInt(3, 14));
-      }
-      if (status === 'PAID') {
-        invoiceData.paidAt = addDays(invoiceData.scheduledPaymentDate || invDate, randomInt(0, 5));
-      }
-
-      const invoice = await prisma.invoice.create({ data: invoiceData });
-
-      // Invoice events
-      const events: any[] = [
-        { invoiceId: invoice.id, eventType: 'CREATED', userId: randomElement(pharmacyUsers).id, createdAt: invDate },
-      ];
-      if (invoiceData.submittedAt) {
-        events.push({ invoiceId: invoice.id, eventType: 'SUBMITTED', userId: randomElement(pharmacyUsers).id, createdAt: invoiceData.submittedAt });
-      }
-      if (invoiceData.approvedAt) {
-        events.push({ invoiceId: invoice.id, eventType: 'APPROVED', userId: admin.id, createdAt: invoiceData.approvedAt });
-      }
-      if (status === 'REJECTED') {
-        events.push({ invoiceId: invoice.id, eventType: 'REJECTED', userId: admin.id, notes: 'Duplicate or incorrect amount', createdAt: addDays(invoiceData.submittedAt || invDate, 2) });
-      }
-      if (status === 'NEEDS_INFO') {
-        events.push({ invoiceId: invoice.id, eventType: 'NEEDS_INFO', userId: admin.id, notes: 'Missing supporting documentation', createdAt: addDays(invoiceData.submittedAt || invDate, 1) });
-      }
-      if (invoiceData.paidAt) {
-        events.push({ invoiceId: invoice.id, eventType: 'PAID', userId: admin.id, createdAt: invoiceData.paidAt });
-      }
-
-      for (const event of events) {
-        await prisma.invoiceEvent.create({ data: event });
-      }
-      invoiceCount++;
-    }
-  }
-  console.log(`  ✓ ${invoiceCount} invoices created with events`);
-
-  // ── 7. Monthly Invoice Requirements (SLA) ──
-  console.log('\nCreating SLA requirements...');
   const months: string[] = [];
   for (let m = 0; m < 3; m++) {
     const d = new Date(currentYear, currentMonth - m, 1);
@@ -494,7 +279,7 @@ async function seedDemoData() {
   }
   console.log(`  ✓ ${pharmacies.length * months.length} monthly requirements`);
 
-  // ── 8. SLA Events ──
+  // ── 7. SLA Events ──
   console.log('\nCreating SLA events...');
   let slaEventCount = 0;
   for (const pharmacy of pharmacies) {
@@ -521,7 +306,7 @@ async function seedDemoData() {
   }
   console.log(`  ✓ ${slaEventCount} SLA events`);
 
-  // ── 9. Notification Logs ──
+  // ── 8. Notification Logs ──
   console.log('\nCreating notification logs...');
   let notifCount = 0;
   for (const pharmacy of pharmacies.slice(0, 5)) {
@@ -539,7 +324,7 @@ async function seedDemoData() {
   }
   console.log(`  ✓ ${notifCount} notification logs`);
 
-  // ── 10. Support Tickets ──
+  // ── 9. Support Tickets ──
   console.log('\nCreating support tickets...');
   const ticketData = [
     {
@@ -590,27 +375,95 @@ async function seedDemoData() {
   }
   console.log(`  ✓ ${ticketData.length} support tickets`);
 
-  // Return data needed by Step 3
-  return { org, pharmacies, invoiceTypeMap, vendorMap, allInvoiceTypeDefs, allVendorDefs };
+  return { org, pharmacies, pharmacyUsers, admin };
 }
 
-// ─── STEP 3: Real Requirements for 4 Pharmacies ─────────────
+// ─── STEP 3: Real Invoice Types, Vendors & Requirements ─────
 
-async function seedRequirements(ctx: {
-  org: any;
-  pharmacies: any[];
-  invoiceTypeMap: Record<string, any>;
-  vendorMap: Record<string, any>;
-  allInvoiceTypeDefs: any[];
-  allVendorDefs: any[];
-}) {
+async function seedRequirements(ctx: { org: any; pharmacies: any[] }) {
   console.log('\n╔══════════════════════════════════════════════╗');
-  console.log('║  STEP 3: Real Requirements (4 Pharmacies)    ║');
+  console.log('║  STEP 3: Invoice Types, Vendors & Requirements║');
   console.log('╚══════════════════════════════════════════════╝\n');
 
-  const { pharmacies, invoiceTypeMap, vendorMap, allInvoiceTypeDefs, allVendorDefs } = ctx;
+  const { org, pharmacies } = ctx;
 
-  // Map pharmacies by name
+  // ── Invoice Types (real, from spreadsheet) ──
+  console.log('Creating invoice types...');
+  const invoiceTypeDefs = [
+    { code: 'PHARMACY_SOFTWARE', name: 'Pharmacy Software Payment Bill', description: 'Pharmacy software fees' },
+    { code: 'COPY_MACHINE', name: 'Copy Machine Payment', description: 'Copy machine lease/service' },
+    { code: 'GARBAGE_RECYCLING', name: 'Garbage Removal - Recycling', description: 'Waste removal services' },
+    { code: 'CARE_CLAIM', name: 'Care Claim Monthly Fee', description: 'Care claim processing fees' },
+    { code: 'INTERNET', name: 'Internet', description: 'Internet and telecom services' },
+    { code: 'ELECTRICAL_GAS', name: 'Electrical & Gas', description: 'Electric and gas utilities' },
+    { code: 'RENT', name: 'Rent', description: 'Rent and lease payments' },
+    { code: 'GOVT_TAXES', name: 'Govt Taxes', description: 'Government tax payments' },
+    { code: 'FIRE_ALARM', name: 'Fire Alarm', description: 'Fire alarm monitoring service' },
+    { code: 'LABELS_VIALS', name: 'Labels & Vials', description: 'Pharmacy labels and vials supply' },
+    { code: 'WHOLESALE_1', name: 'Whole Sale Supplier - 1', description: 'Primary wholesale supplier' },
+    { code: 'WHOLESALE_2', name: 'Whole Sale Supplier - 2', description: 'Secondary wholesale supplier' },
+    { code: 'WHOLESALE_3', name: 'Whole Sale Supplier - 3', description: 'Tertiary wholesale supplier' },
+    { code: 'WHOLESALE_4', name: 'Whole Sale Supplier - 4', description: 'Wholesale supplier 4' },
+    { code: 'WHOLESALE_5', name: 'Whole Sale Supplier - 5', description: 'Wholesale supplier 5' },
+    { code: 'WHOLESALE_6', name: 'Whole Sale Supplier - 6', description: 'Wholesale supplier 6' },
+    { code: 'WHOLESALE_7', name: 'Whole Sale Supplier - 7', description: 'Wholesale supplier 7' },
+    { code: 'WHOLESALE_8', name: 'Whole Sale Supplier - 8', description: 'Wholesale supplier 8' },
+    { code: 'PASSPORT_PHOTOS', name: 'Passport Photos', description: 'Passport photo services' },
+  ];
+
+  const invoiceTypeMap: Record<string, any> = {};
+  for (const data of invoiceTypeDefs) {
+    const it = await prisma.invoiceType.create({
+      data: { orgId: org.id, code: data.code, name: data.name, description: data.description, isRequired: false },
+    });
+    invoiceTypeMap[data.code] = it;
+  }
+  console.log(`  ✓ ${invoiceTypeDefs.length} invoice types`);
+
+  // ── Vendors (real, from spreadsheet) ──
+  console.log('\nCreating vendors...');
+  const vendorDefs = [
+    { code: 'BEST_RX', name: 'Best RX' },
+    { code: 'BLUEBIRD_COPIER', name: 'Bluebird Copier' },
+    { code: 'CALI_CARTING', name: 'Cali Carting' },
+    { code: 'OMNISYS', name: 'Omnisys' },
+    { code: 'OPTIMUM', name: 'Optimum' },
+    { code: 'PSEG', name: 'PSE&G' },
+    { code: 'MILAN_PROPERTIES', name: 'Milan Properties' },
+    { code: 'NJ_TAX_DEPT', name: 'NJ Div of Tax Department' },
+    { code: 'PROTEK_SECURITY', name: 'Pro-Tek Security' },
+    { code: 'MC_CRACKEN', name: 'MC Cracken' },
+    { code: 'KINRAY', name: 'Kinray' },
+    { code: 'MCKESSON', name: 'McKesson' },
+    { code: 'AMERISOURCE', name: 'Amerisource' },
+    { code: 'ANDA', name: 'ANDA' },
+    { code: 'TOP_RX', name: 'Top RX' },
+    { code: 'CON_ED', name: 'Con Ed' },
+    { code: 'LANGSAM_PROPERTIES', name: 'Langsam Properties' },
+    { code: '5_BOROUGH_WASTE', name: '5 Borough Waste Removal' },
+    { code: 'WORLD_COPIER', name: 'World Copier' },
+    { code: 'AAA_ID_PASSPORT', name: 'AAA ID Passport' },
+    { code: 'TOP_ALARM', name: 'Top Alarm Systems' },
+    { code: 'SOPHER_MGMT', name: 'Sopher Management' },
+    { code: 'JLC_COPY', name: 'JLC Copy Inc.' },
+    { code: 'CITY_MED_RX', name: 'City Med Rx' },
+    { code: 'SPECTRUM', name: 'Spectrum' },
+    { code: 'FRIEDLAND_PROPERTIES', name: 'Friedland Properties' },
+    { code: 'ACTION_ENV', name: 'Action Env. Services' },
+    { code: 'BOB_BILA', name: 'Bob-Bila' },
+    { code: 'JJJ_DISTRIBUTROS', name: 'JJJ Distributros' },
+  ];
+
+  const vendorMap: Record<string, any> = {};
+  for (const data of vendorDefs) {
+    const v = await prisma.vendor.create({
+      data: { orgId: org.id, name: data.name, isActive: true },
+    });
+    vendorMap[data.code] = v;
+  }
+  console.log(`  ✓ ${vendorDefs.length} vendors`);
+
+  // ── Map pharmacies by name ──
   const pharmacyByName: Record<string, any> = {};
   for (const p of pharmacies) {
     pharmacyByName[p.name] = p;
@@ -622,12 +475,6 @@ async function seedRequirements(ctx: {
   const vimDrugs = pharmacyByName['VIM Drugs'];
 
   if (!branchBrook || !hillPharmacy || !masonRx || !vimDrugs) {
-    console.error('Missing pharmacies:', {
-      branchBrook: !!branchBrook,
-      hillPharmacy: !!hillPharmacy,
-      masonRx: !!masonRx,
-      vimDrugs: !!vimDrugs,
-    });
     throw new Error('One or more target pharmacies not found');
   }
 
@@ -727,7 +574,7 @@ async function seedRequirements(ctx: {
     { invoiceTypeCode: 'WHOLESALE_8', vendorCode: 'JJJ_DISTRIBUTROS', frequency: 'MONTHLY', submissionDay: '1st', processingDueDay: 5 },
   ];
 
-  // ── Create requirements for each pharmacy ──
+  // ── Create requirements ──
   async function createRequirements(pharmacyId: string, pharmacyName: string, reqs: ReqDef[]) {
     console.log(`\nCreating requirements for ${pharmacyName}...`);
     let created = 0;
@@ -739,8 +586,8 @@ async function seedRequirements(ctx: {
       if (!typeObj) { console.error(`  ✗ Missing invoice type: ${req.invoiceTypeCode}`); continue; }
       if (!vendObj) { console.error(`  ✗ Missing vendor: ${req.vendorCode}`); continue; }
 
-      const typeName = allInvoiceTypeDefs.find(t => t.code === req.invoiceTypeCode)?.name || req.invoiceTypeCode;
-      const vendorName = allVendorDefs.find(v => v.code === req.vendorCode)?.name || req.vendorCode;
+      const typeName = invoiceTypeDefs.find(t => t.code === req.invoiceTypeCode)?.name || req.invoiceTypeCode;
+      const vendorName = vendorDefs.find(v => v.code === req.vendorCode)?.name || req.vendorCode;
       const subDay = parseSubmissionDay(req.submissionDay);
 
       await prisma.invoiceRequirement.create({
@@ -761,12 +608,6 @@ async function seedRequirements(ctx: {
     console.log(`  ✓ ${created} requirements created`);
   }
 
-  // Delete any generic requirements created in Step 2 for these 4 pharmacies
-  // (Step 2 creates basic Rent/Electricity requirements for all pharmacies)
-  await prisma.invoiceRequirement.deleteMany({
-    where: { pharmacyId: { in: [branchBrook.id, hillPharmacy.id, masonRx.id, vimDrugs.id] } },
-  });
-
   await createRequirements(branchBrook.id, 'Branch Brook Pharmacy', branchBrookReqs);
   await createRequirements(hillPharmacy.id, 'Hill Pharmacy', hillReqs);
   await createRequirements(masonRx.id, 'Mason Pharmacy', masonReqs);
@@ -778,25 +619,23 @@ async function seedRequirements(ctx: {
   const targetPharmacyIds = [branchBrook.id, hillPharmacy.id, masonRx.id, vimDrugs.id];
   const allRequirements = await prisma.invoiceRequirement.findMany({
     where: { pharmacyId: { in: targetPharmacyIds }, isActive: true },
-    include: { pharmacy: true },
   });
 
   const now = new Date();
-  const months: { start: Date; end: Date; label: string }[] = [];
+  const instanceMonths: { start: Date; end: Date; label: string }[] = [];
   for (let offset = 0; offset < 3; offset++) {
     const d = new Date(now.getFullYear(), now.getMonth() + offset, 1);
     const start = new Date(d.getFullYear(), d.getMonth(), 1);
     const end = new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59);
     const label = start.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-    months.push({ start, end, label });
+    instanceMonths.push({ start, end, label });
   }
 
   let instancesCreated = 0;
 
   for (const req of allRequirements) {
-    // ONE_TIME: just one instance
     if (req.frequency === 'ONE_TIME') {
-      const m = months[0];
+      const m = instanceMonths[0];
       await prisma.requirementInstance.create({
         data: {
           requirementId: req.id,
@@ -812,15 +651,13 @@ async function seedRequirements(ctx: {
       continue;
     }
 
-    for (const month of months) {
-      // QUARTERLY: check if month applies
+    for (const month of instanceMonths) {
       if (req.frequency === 'QUARTERLY') {
         const monthNum = month.start.getMonth() + 1;
         const applicable = (req.applicableMonths || '3,6,9,12').split(',').map(Number);
         if (!applicable.includes(monthNum)) continue;
       }
 
-      // BI_WEEKLY: 2 instances per month
       if (req.frequency === 'BI_WEEKLY') {
         for (const biWeekDay of [1, 15]) {
           const periodStart = new Date(month.start.getFullYear(), month.start.getMonth(), biWeekDay);
@@ -845,7 +682,7 @@ async function seedRequirements(ctx: {
         continue;
       }
 
-      // MONTHLY (and others)
+      // MONTHLY
       await prisma.requirementInstance.create({
         data: {
           requirementId: req.id,
@@ -863,10 +700,9 @@ async function seedRequirements(ctx: {
 
   console.log(`  ✓ ${instancesCreated} requirement instances created`);
 
-  // Final counts
   const totalReqs = await prisma.invoiceRequirement.count();
   const totalInstances = await prisma.requirementInstance.count();
-  console.log(`\n  Total requirements (all pharmacies): ${totalReqs}`);
+  console.log(`\n  Total requirements: ${totalReqs}`);
   console.log(`  Total instances: ${totalInstances}`);
 }
 
@@ -882,10 +718,10 @@ async function main() {
   // STEP 1: Schema
   await runSchema();
 
-  // STEP 2: Demo Data
-  const ctx = await seedDemoData();
+  // STEP 2: Base Data
+  const ctx = await seedBaseData();
 
-  // STEP 3: Requirements
+  // STEP 3: Invoice Types, Vendors & Requirements
   await seedRequirements(ctx);
 
   // ── Summary ──
@@ -899,14 +735,15 @@ async function main() {
   console.log('║  ✓ 1 Organization                             ║');
   console.log('║  ✓ 10 Pharmacies                              ║');
   console.log('║  ✓ 12 Users (admin + manager + 10 pharmacy)   ║');
-  console.log('║  ✓ 22 Invoice types, 33 Vendors               ║');
-  console.log('║  ✓ 50+ Sample invoices with events             ║');
+  console.log('║  ✓ 19 Invoice types, 29 Vendors (real data)   ║');
   console.log('║  ✓ SLA requirements, events, notifications    ║');
   console.log('║  ✓ 3 Support tickets                          ║');
-  console.log('║  ✓ Real requirements for 4 pharmacies:        ║');
+  console.log('║  ✓ Requirements for 4 pharmacies:             ║');
   console.log('║    - Branch Brook (15), Hill (13)             ║');
   console.log('║    - Mason (16), VIM Drugs (18)               ║');
   console.log('║  ✓ Requirement instances (3 months)           ║');
+  console.log('║                                               ║');
+  console.log('║  NO demo invoices, NO demo vendors/types      ║');
   console.log('║                                               ║');
   console.log('║  Login Credentials:                           ║');
   console.log('║  ─────────────────                            ║');
