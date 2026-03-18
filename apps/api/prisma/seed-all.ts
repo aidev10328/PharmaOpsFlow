@@ -622,13 +622,18 @@ async function seedRequirements(ctx: { org: any; pharmacies: any[] }) {
   });
 
   const now = new Date();
-  const instanceMonths: { start: Date; end: Date; label: string }[] = [];
+  const instanceMonths: { year: number; month: number; start: Date; end: Date; label: string }[] = [];
   for (let offset = 0; offset < 3; offset++) {
-    const d = new Date(now.getFullYear(), now.getMonth() + offset, 1);
-    const start = new Date(d.getFullYear(), d.getMonth(), 1);
-    const end = new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59);
-    const label = start.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-    instanceMonths.push({ start, end, label });
+    const y = now.getFullYear();
+    const m = now.getMonth() + offset;
+    const d = new Date(Date.UTC(y, m, 1));
+    const year = d.getUTCFullYear();
+    const month = d.getUTCMonth();
+    const start = new Date(Date.UTC(year, month, 1));
+    const end = new Date(Date.UTC(year, month + 1, 0, 23, 59, 59));
+    const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+    const label = `${monthNames[month]} ${year}`;
+    instanceMonths.push({ year, month, start, end, label });
   }
 
   let instancesCreated = 0;
@@ -642,8 +647,8 @@ async function seedRequirements(ctx: { org: any; pharmacies: any[] }) {
           periodStart: m.start,
           periodEnd: m.end,
           periodLabel: m.label,
-          submissionDeadline: new Date(m.start.getFullYear(), m.start.getMonth(), Math.min(req.submissionDueDay, 28)),
-          processingDeadline: new Date(m.start.getFullYear(), m.start.getMonth(), Math.min(req.processingDueDay, 28)),
+          submissionDeadline: new Date(Date.UTC(m.year, m.month, Math.min(req.submissionDueDay, 28))),
+          processingDeadline: new Date(Date.UTC(m.year, m.month, Math.min(req.processingDueDay, 28))),
           status: 'PENDING',
         },
       });
@@ -653,17 +658,17 @@ async function seedRequirements(ctx: { org: any; pharmacies: any[] }) {
 
     for (const month of instanceMonths) {
       if (req.frequency === 'QUARTERLY') {
-        const monthNum = month.start.getMonth() + 1;
+        const monthNum = month.month + 1;
         const applicable = (req.applicableMonths || '3,6,9,12').split(',').map(Number);
         if (!applicable.includes(monthNum)) continue;
       }
 
       if (req.frequency === 'BI_WEEKLY') {
         for (const biWeekDay of [1, 15]) {
-          const periodStart = new Date(month.start.getFullYear(), month.start.getMonth(), biWeekDay);
+          const periodStart = new Date(Date.UTC(month.year, month.month, biWeekDay));
           const periodEnd = biWeekDay === 1
-            ? new Date(month.start.getFullYear(), month.start.getMonth(), 14, 23, 59, 59)
-            : new Date(month.start.getFullYear(), month.start.getMonth() + 1, 0, 23, 59, 59);
+            ? new Date(Date.UTC(month.year, month.month, 14, 23, 59, 59))
+            : new Date(Date.UTC(month.year, month.month + 1, 0, 23, 59, 59));
           const periodLabel = `${month.label} (${biWeekDay === 1 ? '1st-14th' : '15th-end'})`;
 
           await prisma.requirementInstance.create({
@@ -672,8 +677,8 @@ async function seedRequirements(ctx: { org: any; pharmacies: any[] }) {
               periodStart,
               periodEnd,
               periodLabel,
-              submissionDeadline: new Date(month.start.getFullYear(), month.start.getMonth(), biWeekDay + 4),
-              processingDeadline: new Date(month.start.getFullYear(), month.start.getMonth(), biWeekDay + 9),
+              submissionDeadline: new Date(Date.UTC(month.year, month.month, biWeekDay + 4)),
+              processingDeadline: new Date(Date.UTC(month.year, month.month, biWeekDay + 9)),
               status: 'PENDING',
             },
           });
@@ -689,8 +694,8 @@ async function seedRequirements(ctx: { org: any; pharmacies: any[] }) {
           periodStart: month.start,
           periodEnd: month.end,
           periodLabel: month.label,
-          submissionDeadline: new Date(month.start.getFullYear(), month.start.getMonth(), Math.min(req.submissionDueDay, 28)),
-          processingDeadline: new Date(month.start.getFullYear(), month.start.getMonth(), Math.min(req.processingDueDay, 28)),
+          submissionDeadline: new Date(Date.UTC(month.year, month.month, Math.min(req.submissionDueDay, 28))),
+          processingDeadline: new Date(Date.UTC(month.year, month.month, Math.min(req.processingDueDay, 28))),
           status: 'PENDING',
         },
       });

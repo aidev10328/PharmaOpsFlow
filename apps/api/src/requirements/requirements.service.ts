@@ -350,10 +350,9 @@ export class RequirementsService {
 
     if (filters.yearMonth) {
       const [year, month] = filters.yearMonth.split('-').map(Number);
-      const monthStart = new Date(year, month - 1, 1);
-      const monthEnd = new Date(year, month, 0, 23, 59, 59);
-      where.periodStart = { lte: monthEnd };
-      where.periodEnd = { gte: monthStart };
+      const monthStart = new Date(Date.UTC(year, month - 1, 1));
+      const nextMonthStart = new Date(Date.UTC(year, month, 1));
+      where.periodStart = { gte: monthStart, lt: nextMonthStart };
     }
 
     if (filters.overdueOnly) {
@@ -560,10 +559,9 @@ export class RequirementsService {
 
     if (yearMonth) {
       const [year, month] = yearMonth.split('-').map(Number);
-      const monthStart = new Date(year, month - 1, 1);
-      const monthEnd = new Date(year, month, 0, 23, 59, 59);
-      where.periodStart = { lte: monthEnd };
-      where.periodEnd = { gte: monthStart };
+      const monthStart = new Date(Date.UTC(year, month - 1, 1));
+      const nextMonthStart = new Date(Date.UTC(year, month, 1));
+      where.periodStart = { gte: monthStart, lt: nextMonthStart };
     }
 
     const instances = await this.prisma.requirementInstance.findMany({
@@ -622,10 +620,9 @@ export class RequirementsService {
     const periodFilter: any = {};
     if (yearMonth) {
       const [year, month] = yearMonth.split('-').map(Number);
-      const monthStart = new Date(year, month - 1, 1);
-      const monthEnd = new Date(year, month, 0, 23, 59, 59);
-      periodFilter.periodStart = { lte: monthEnd };
-      periodFilter.periodEnd = { gte: monthStart };
+      const monthStart = new Date(Date.UTC(year, month - 1, 1));
+      const nextMonthStart = new Date(Date.UTC(year, month, 1));
+      periodFilter.periodStart = { gte: monthStart, lt: nextMonthStart };
     }
 
     const summaries: ComplianceSummary[] = [];
@@ -697,10 +694,9 @@ export class RequirementsService {
 
     if (yearMonth) {
       const [year, month] = yearMonth.split('-').map(Number);
-      const monthStart = new Date(year, month - 1, 1);
-      const monthEnd = new Date(year, month, 0, 23, 59, 59);
-      where.periodStart = { lte: monthEnd };
-      where.periodEnd = { gte: monthStart };
+      const monthStart = new Date(Date.UTC(year, month - 1, 1));
+      const nextMonthStart = new Date(Date.UTC(year, month, 1));
+      where.periodStart = { gte: monthStart, lt: nextMonthStart };
     }
 
     const instances = await this.prisma.requirementInstance.findMany({
@@ -742,21 +738,20 @@ export class RequirementsService {
     // Get instances for the specified month (or current month)
     const now = new Date();
     let monthStart: Date;
-    let monthEnd: Date;
+    let nextMonthStart: Date;
     if (yearMonth) {
       const [year, month] = yearMonth.split('-').map(Number);
-      monthStart = new Date(year, month - 1, 1);
-      monthEnd = new Date(year, month, 0, 23, 59, 59);
+      monthStart = new Date(Date.UTC(year, month - 1, 1));
+      nextMonthStart = new Date(Date.UTC(year, month, 1));
     } else {
-      monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-      monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+      monthStart = new Date(Date.UTC(now.getFullYear(), now.getMonth(), 1));
+      nextMonthStart = new Date(Date.UTC(now.getFullYear(), now.getMonth() + 1, 1));
     }
 
     const instances = await this.prisma.requirementInstance.findMany({
       where: {
         requirement: { pharmacyId, isActive: true },
-        periodStart: { lte: monthEnd },
-        periodEnd: { gte: monthStart },
+        periodStart: { gte: monthStart, lt: nextMonthStart },
       },
     });
 
