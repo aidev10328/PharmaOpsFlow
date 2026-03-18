@@ -304,6 +304,7 @@ export default function ManagerExplorePage() {
       year: 'numeric',
       month: 'short',
       day: 'numeric',
+      timeZone: 'UTC',
     });
   };
 
@@ -340,7 +341,7 @@ export default function ManagerExplorePage() {
           </p>
         </div>
         <Link href="/dashboard/manager/chat" className="btn-primary">
-          Try AI Chat
+          Try AI Assistant
         </Link>
       </div>
 

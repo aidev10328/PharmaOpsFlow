@@ -676,7 +676,7 @@ export default function NewInvoicePage() {
             <div>
               <div className="text-xs text-gray-500 uppercase">Due By</div>
               <div className="font-medium text-orange-600">
-                {new Date(instance.submissionDeadline).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                {new Date(instance.submissionDeadline).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })}
               </div>
             </div>
           </div>

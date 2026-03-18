@@ -4,7 +4,6 @@ import { useAuth } from '../../../../components/AuthProvider';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { apiFetch } from '../../../../lib/api';
-import Link from 'next/link';
 import InvoiceStatusDonut from '../../../../components/charts/InvoiceStatusDonut';
 import SlaComplianceBar from '../../../../components/charts/SlaComplianceBar';
 
@@ -33,14 +32,13 @@ const currentMonth = () => {
 const formatCurrency = (amount: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(amount);
 
-export default function AdminDashboardPage() {
+export default function AdminOverviewPage() {
   const { user, loading } = useAuth();
   const router = useRouter();
   const [metrics, setMetrics] = useState<MetricData | null>(null);
   const [loadingMetrics, setLoadingMetrics] = useState(true);
   const [selectedMonth, setSelectedMonth] = useState(currentMonth());
 
-  // Build date range from selected month for endpoints that use dateFrom/dateTo
   const monthDateRange = (month: string) => {
     const [y, m] = month.split('-').map(Number);
     const from = `${month}-01`;
@@ -49,7 +47,6 @@ export default function AdminDashboardPage() {
     return { from, to };
   };
 
-  // Generate last 12 months for dropdown
   const monthOptions = () => {
     const options: { value: string; label: string }[] = [];
     const now = new Date();
@@ -63,14 +60,8 @@ export default function AdminDashboardPage() {
   };
 
   useEffect(() => {
-    if (!loading && !user) {
-      router.push('/login');
-      return;
-    }
-    if (!loading && user && user.role !== 'ADMIN') {
-      router.push('/dashboard');
-      return;
-    }
+    if (!loading && !user) { router.push('/login'); return; }
+    if (!loading && user && user.role !== 'ADMIN') { router.push('/dashboard'); return; }
   }, [user, loading, router]);
 
   useEffect(() => {
@@ -124,21 +115,7 @@ export default function AdminDashboardPage() {
     fetchMetrics();
   }, [user, selectedMonth]);
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center py-12">
-        <div className="flex items-center gap-2 text-gray-400">
-          <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-          </svg>
-          <span className="text-sm">Loading...</span>
-        </div>
-      </div>
-    );
-  }
-
-  if (!user || user.role !== 'ADMIN') return null;
+  if (loading || !user || user.role !== 'ADMIN') return null;
 
   const slaRate = metrics && metrics.slaTotalPharmacies > 0
     ? Math.round((metrics.slaCompliantPharmacies / metrics.slaTotalPharmacies) * 100)
@@ -260,9 +237,7 @@ export default function AdminDashboardPage() {
                 <InvoiceStatusDonut statusCounts={metrics.invoiceStatusCounts} />
               </div>
             ) : (
-              <div className="h-[200px] flex items-center justify-center text-gray-400 text-xs">
-                No data
-              </div>
+              <div className="h-[200px] flex items-center justify-center text-gray-400 text-xs">No data</div>
             )}
           </div>
           <div className="card p-3 overflow-hidden">
@@ -278,61 +253,11 @@ export default function AdminDashboardPage() {
                 />
               </div>
             ) : (
-              <div className="h-[200px] flex items-center justify-center text-gray-400 text-xs">
-                No data
-              </div>
+              <div className="h-[200px] flex items-center justify-center text-gray-400 text-xs">No data</div>
             )}
           </div>
         </div>
       )}
-
-      {/* Quick Links Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        {/* Organization */}
-        <div className="card p-3">
-          <h2 className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-2">Organization</h2>
-          <div className="space-y-1">
-            <QuickLink href="/dashboard/admin/users" label="Users" badge={metrics ? `${metrics.totalUsers}` : undefined} />
-            <QuickLink href="/dashboard/admin/pharmacies" label="Pharmacies" badge={metrics ? `${metrics.activePharmacies}` : undefined} />
-            <QuickLink href="/dashboard/admin/org" label="Organization Settings" />
-          </div>
-        </div>
-
-        {/* Configuration */}
-        <div className="card p-3">
-          <h2 className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-2">Configuration</h2>
-          <div className="space-y-1">
-            <QuickLink href="/dashboard/admin/reference/invoice-types" label="Invoice Types" />
-            <QuickLink href="/dashboard/admin/reference/vendors" label="Vendors" />
-            <QuickLink href="/dashboard/admin/requirements" label="Invoice Schedules" />
-          </div>
-        </div>
-
-        {/* Operational Oversight */}
-        <div className="card p-3">
-          <h2 className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-2">Operational Oversight</h2>
-          <div className="space-y-1">
-            <QuickLink href="/dashboard/admin/oversight/invoices" label="All Invoices" badge={metrics ? `${metrics.totalInvoices}` : undefined} />
-            <QuickLink href="/dashboard/admin/oversight/sla" label="SLA & Compliance" badge={metrics ? `${slaRate}%` : undefined} badgeColor={slaRate >= 80 ? 'text-emerald-600' : 'text-amber-600'} />
-            <QuickLink href="/dashboard/admin/oversight/notifications" label="Notifications" />
-            <QuickLink href="/dashboard/admin/oversight/automation" label="Automation Health" />
-          </div>
-        </div>
-      </div>
     </div>
-  );
-}
-
-function QuickLink({ href, label, badge, badgeColor }: { href: string; label: string; badge?: string; badgeColor?: string }) {
-  return (
-    <Link
-      href={href}
-      className="flex items-center justify-between py-1.5 px-2 -mx-2 rounded hover:bg-gray-50 transition-colors group"
-    >
-      <span className="text-sm text-gray-700 group-hover:text-gray-900">{label}</span>
-      {badge && (
-        <span className={`text-xs font-medium ${badgeColor || 'text-gray-400'}`}>{badge}</span>
-      )}
-    </Link>
   );
 }

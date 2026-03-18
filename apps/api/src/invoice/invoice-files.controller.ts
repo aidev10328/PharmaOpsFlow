@@ -168,7 +168,7 @@ export class InvoiceFilesController {
     const cleanName = fileName.replace(/^[a-f0-9-]+-/, '');
 
     // Set headers for download
-    res.setHeader('Content-Disposition', `attachment; filename="${cleanName}"`);
+    res.setHeader('Content-Disposition', `inline; filename="${cleanName}"`);
 
     // Stream the file
     res.sendFile(fullPath);

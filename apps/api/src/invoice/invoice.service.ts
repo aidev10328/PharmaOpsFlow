@@ -17,6 +17,7 @@ import {
 import { InvoiceStatus, InvoiceEventType, Prisma } from '@prisma/client';
 import { SlaService } from '../sla/sla.service';
 import { RequirementsService } from '../requirements/requirements.service';
+import { InvoiceFilesService } from './invoice-files.service';
 
 // Valid status transitions
 const STATUS_TRANSITIONS: Record<InvoiceStatus, InvoiceStatus[]> = {
@@ -37,6 +38,8 @@ export class InvoiceService {
     private slaService: SlaService,
     @Inject(forwardRef(() => RequirementsService))
     private requirementsService: RequirementsService,
+    @Inject(forwardRef(() => InvoiceFilesService))
+    private invoiceFilesService: InvoiceFilesService,
   ) {}
 
   /**
@@ -444,10 +447,20 @@ export class InvoiceService {
   /**
    * Mark invoice as paid
    */
-  async markPaid(invoiceId: string, userId: string, dto?: InvoiceStatusDto) {
+  async markPaid(invoiceId: string, userId: string, dto?: InvoiceStatusDto, receiptFile?: Express.Multer.File) {
     if (!dto?.paidDate) {
       throw new BadRequestException('Payment date is required');
     }
+
+    // Upload payment receipt if provided
+    if (receiptFile) {
+      await this.invoiceFilesService.uploadFile({
+        invoiceId,
+        file: receiptFile,
+        userId,
+      });
+    }
+
     return this.transitionStatus(
       invoiceId,
       InvoiceStatus.PAID,
@@ -680,15 +693,20 @@ export class InvoiceService {
       ];
     }
 
+    // Managers should not see DRAFT invoices in stats
+    const statsWhere = managerId
+      ? { ...where, status: { not: InvoiceStatus.DRAFT } }
+      : where;
+
     const [statusCounts, totalAmount, upcomingDue] = await Promise.all([
       this.prisma.invoice.groupBy({
         by: ['status'],
-        where,
+        where: statsWhere,
         _count: { id: true },
         _sum: { amount: true },
       }),
       this.prisma.invoice.aggregate({
-        where: { ...where, status: { notIn: [InvoiceStatus.REJECTED] } },
+        where: { ...statsWhere, status: { notIn: [InvoiceStatus.REJECTED, InvoiceStatus.DRAFT] } },
         _sum: { amount: true },
       }),
       this.prisma.invoice.count({

@@ -102,7 +102,7 @@ export class SupabaseStorageProvider implements StorageProvider, OnModuleInit {
     const { data, error } = await this.supabase.storage
       .from(this.bucket)
       .createSignedUrl(storagePath, expiresInSeconds, {
-        download: true, // Force download instead of inline display
+        download: false, // Display inline in browser
       });
 
     if (error) {

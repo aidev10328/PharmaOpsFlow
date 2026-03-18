@@ -138,6 +138,7 @@ export default function ManagerInvoiceDetailPage() {
       year: 'numeric',
       month: 'short',
       day: 'numeric',
+      timeZone: 'UTC',
     });
   };
 

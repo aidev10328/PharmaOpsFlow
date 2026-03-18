@@ -283,6 +283,7 @@ export default function PharmacyInvoicesPage() {
       year: 'numeric',
       month: 'short',
       day: 'numeric',
+      timeZone: 'UTC',
     });
   };
 
@@ -654,12 +655,9 @@ export default function PharmacyInvoicesPage() {
         ) : (() => {
           const actionItems = [
             ...(!isManager ? filteredPendingInstances.map(inst => ({ type: 'instance' as const, data: inst })) : []),
-            ...sortedInvoices
-              .filter(inv => (!isManager || inv.status !== 'DRAFT') && ['NEEDS_INFO'].includes(inv.status))
-              .map(inv => ({ type: 'invoice' as const, data: inv })),
           ];
           const inProgressItems = sortedInvoices
-            .filter(inv => (!isManager || inv.status !== 'DRAFT') && ['DRAFT', 'SUBMITTED', 'APPROVED', 'SCHEDULED'].includes(inv.status))
+            .filter(inv => (!isManager || inv.status !== 'DRAFT') && ['DRAFT', 'SUBMITTED', 'APPROVED', 'SCHEDULED', 'NEEDS_INFO'].includes(inv.status))
             .map(inv => ({ type: 'invoice' as const, data: inv }));
           const completedItems = sortedInvoices
             .filter(inv => (!isManager || inv.status !== 'DRAFT') && ['PAID', 'REJECTED'].includes(inv.status))
@@ -786,11 +784,10 @@ export default function PharmacyInvoicesPage() {
                                       onClick={async () => {
                                         try {
                                           const res = await apiFetch(`/invoice-files/${inv.files[0].id}/download`);
-                                          if (!res.ok) throw new Error('Download failed');
-                                          const blob = await res.blob();
-                                          const url = URL.createObjectURL(blob);
-                                          window.open(url, '_blank');
-                                        } catch { alert('Failed to download file'); }
+                                          if (!res.ok) throw new Error('Failed to get file');
+                                          const data = await res.json();
+                                          window.open(data.downloadUrl, '_blank');
+                                        } catch { alert('Failed to open file'); }
                                       }}
                                       className="p-1 rounded text-gray-400 hover:text-primary-600 hover:bg-primary-50 transition-colors"
                                       title="View file"
@@ -924,11 +921,10 @@ export default function PharmacyInvoicesPage() {
                                     onClick={async () => {
                                       try {
                                         const res = await apiFetch(`/invoice-files/${invoice.files[0].id}/download`);
-                                        if (!res.ok) throw new Error('Download failed');
-                                        const blob = await res.blob();
-                                        const url = URL.createObjectURL(blob);
-                                        window.open(url, '_blank');
-                                      } catch { alert('Failed to download file'); }
+                                        if (!res.ok) throw new Error('Failed to get file');
+                                        const data = await res.json();
+                                        window.open(data.downloadUrl, '_blank');
+                                      } catch { alert('Failed to open file'); }
                                     }}
                                     className="p-1 rounded text-gray-400 hover:text-primary-600 hover:bg-primary-50 transition-colors"
                                     title="View file"

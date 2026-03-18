@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState, useEffect, useCallback } from 'react';
+import { useRef, useState, useEffect, useCallback, forwardRef, useImperativeHandle } from 'react';
 
 type Tool = 'draw' | 'rectangle' | 'arrow' | 'text' | 'highlight';
 
@@ -20,9 +20,13 @@ type Props = {
   onCancel: () => void;
 };
 
+export type ScreenshotAnnotatorRef = {
+  save: () => void;
+};
+
 const COLORS = ['#EF4444', '#F59E0B', '#10B981', '#3B82F6', '#8B5CF6', '#000000'];
 
-export default function ScreenshotAnnotator({ imageUrl, onSave, onCancel }: Props) {
+const ScreenshotAnnotator = forwardRef<ScreenshotAnnotatorRef, Props>(({ imageUrl, onSave, onCancel }, ref) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const textInputRef = useRef<HTMLInputElement>(null);
   const [tool, setTool] = useState<Tool>('draw');
@@ -231,13 +235,15 @@ export default function ScreenshotAnnotator({ imageUrl, onSave, onCancel }: Prop
     setActions(prev => [...prev, last]);
   };
 
-  const handleSave = () => {
+  const handleSave = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     canvas.toBlob((blob) => {
       if (blob) onSave(blob);
     }, 'image/png');
-  };
+  }, [onSave]);
+
+  useImperativeHandle(ref, () => ({ save: handleSave }), [handleSave]);
 
   const tools: { id: Tool; label: string; icon: string }[] = [
     { id: 'draw', label: 'Draw', icon: '✏️' },
@@ -362,4 +368,8 @@ export default function ScreenshotAnnotator({ imageUrl, onSave, onCancel }: Prop
       </div>
     </div>
   );
-}
+});
+
+ScreenshotAnnotator.displayName = 'ScreenshotAnnotator';
+
+export default ScreenshotAnnotator;

@@ -34,6 +34,7 @@ type Invoice = {
   pharmacy: Pharmacy;
   vendor: Vendor;
   invoiceType: InvoiceType;
+  files?: { id: string; originalName: string; mimeType: string }[];
   createdAt: string;
 };
 
@@ -108,7 +109,7 @@ const formatCurrency = (amount: string | number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Number(amount));
 
 const formatDate = (dateString: string) =>
-  new Date(dateString).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+  new Date(dateString).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' });
 
 const isOverdue = (dueDate: string, status: string) => {
   if (['PAID', 'REJECTED'].includes(status)) return false;
@@ -235,6 +236,7 @@ export default function ManagerOperationsPage() {
   const [actionDate, setActionDate] = useState('');
   const [actionType, setActionType] = useState<'review' | 'schedule' | 'paid'>('review');
   const [processingAction, setProcessingAction] = useState<string | null>(null);
+  const [receiptFile, setReceiptFile] = useState<File | null>(null);
 
   // Filters (shared between invoices "all" sub-tab and analytics tab)
   const [filterOptions, setFilterOptions] = useState<FilterOptions>({ pharmacies: [], invoiceTypes: [], vendors: [], statuses: [] });
@@ -492,19 +494,38 @@ export default function ManagerOperationsPage() {
     }
     setProcessingAction(`${action}-${invoiceId}`);
     try {
-      const body: Record<string, any> = {};
-      if (actionNotes) body.notes = actionNotes;
-      if (action === 'schedule' && actionDate) body.scheduledDate = actionDate;
-      if (action === 'paid' && actionDate) body.paidDate = actionDate;
+      let res: Response;
 
-      const res = await apiFetch(`/invoices/${invoiceId}/${action}`, {
-        method: 'POST',
-        body: JSON.stringify(body),
-      });
+      if (action === 'paid' && receiptFile) {
+        // Use FormData for file upload
+        const formData = new FormData();
+        formData.append('receipt', receiptFile);
+        if (actionDate) formData.append('paidDate', actionDate);
+        if (actionNotes) formData.append('notes', actionNotes);
+
+        const token = typeof window !== 'undefined' ? localStorage.getItem('pharmaopsflow_token') : null;
+        res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8005'}/invoices/${invoiceId}/${action}`, {
+          method: 'POST',
+          headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+          body: formData,
+        });
+      } else {
+        const body: Record<string, any> = {};
+        if (actionNotes) body.notes = actionNotes;
+        if (action === 'schedule' && actionDate) body.scheduledDate = actionDate;
+        if (action === 'paid' && actionDate) body.paidDate = actionDate;
+
+        res = await apiFetch(`/invoices/${invoiceId}/${action}`, {
+          method: 'POST',
+          body: JSON.stringify(body),
+        });
+      }
+
       if (res.ok) {
         const approvedInvoice = action === 'approve' ? (selectedInvoice || allInvoices.find(i => i.id === invoiceId) || pendingInvoices.find(i => i.id === invoiceId)) : null;
         setActionNotes('');
         setActionDate('');
+        setReceiptFile(null);
         setSelectedInvoice(null);
         setActionType('review');
         await Promise.all([fetchPendingInvoices(), fetchAllInvoices(), fetchStats()]);
@@ -533,6 +554,7 @@ export default function ManagerOperationsPage() {
     setActionType(type);
     setActionNotes('');
     setActionDate('');
+    setReceiptFile(null);
   };
 
   // ─── Filter Chips ────────────────────────────────────────
@@ -691,7 +713,7 @@ export default function ManagerOperationsPage() {
           </p>
         </div>
         <Link href="/dashboard/manager/chat" className="btn-primary text-xs px-3 py-1.5">
-          AI Chat
+          AI Assistant
         </Link>
       </div>
 
@@ -1041,6 +1063,30 @@ export default function ManagerOperationsPage() {
                     </div>
                   )}
 
+                  {/* Receipt upload for Paid */}
+                  {actionType === 'paid' && (
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">
+                        Payment Receipt (optional)
+                      </label>
+                      <input
+                        type="file"
+                        accept=".pdf,.png,.jpg,.jpeg"
+                        onChange={e => setReceiptFile(e.target.files?.[0] || null)}
+                        className="block w-full text-xs text-gray-500 file:mr-3 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-xs file:font-medium file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100"
+                      />
+                      {receiptFile && (
+                        <div className="flex items-center gap-2 mt-1.5 text-[11px] text-emerald-700 bg-emerald-50 rounded px-2 py-1">
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                          </svg>
+                          <span className="truncate">{receiptFile.name}</span>
+                          <button onClick={() => setReceiptFile(null)} className="ml-auto text-gray-400 hover:text-red-500">×</button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   <div>
                     <label className="block text-xs font-medium text-gray-700 mb-1">
                       {actionType === 'review' ? 'Action Notes' : 'Notes'}{actionType === 'review' ? ' (required for Needs Info/Reject)' : ' (optional)'}
@@ -1055,7 +1101,7 @@ export default function ManagerOperationsPage() {
                   </div>
                 </div>
                 <div className="px-4 py-3 border-t bg-gray-50 flex justify-between">
-                  <button onClick={() => { setSelectedInvoice(null); setActionNotes(''); setActionDate(''); setActionType('review'); }} className="btn-secondary text-xs px-3 py-1.5">Cancel</button>
+                  <button onClick={() => { setSelectedInvoice(null); setActionNotes(''); setActionDate(''); setReceiptFile(null); setActionType('review'); }} className="btn-secondary text-xs px-3 py-1.5">Cancel</button>
                   <div className="flex gap-1.5">
                     {actionType === 'review' && (
                       <>
@@ -1628,7 +1674,25 @@ function InvoiceTable({
                   </span>
                 </td>
                 <td className="px-3 py-2 whitespace-nowrap text-right">
-                  <div className="flex justify-end gap-1.5">
+                  <div className="flex justify-end gap-1.5 items-center">
+                    {invoice.files && invoice.files.length > 0 && (
+                      <button
+                        onClick={async () => {
+                          try {
+                            const res = await apiFetch(`/invoice-files/${invoice.files![0].id}/download`);
+                            if (!res.ok) throw new Error('Failed to get file');
+                            const data = await res.json();
+                            window.open(data.downloadUrl, '_blank');
+                          } catch { alert('Failed to open file'); }
+                        }}
+                        className="p-1 rounded text-gray-400 hover:text-primary-600 hover:bg-primary-50 transition-colors"
+                        title={`View ${invoice.files[0].originalName}`}
+                      >
+                        <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm2 6a1 1 0 011-1h6a1 1 0 110 2H7a1 1 0 01-1-1zm1 3a1 1 0 100 2h6a1 1 0 100-2H7z" clipRule="evenodd" />
+                        </svg>
+                      </button>
+                    )}
                     <Link href={`/dashboard/manager/invoices/${invoice.id}`} className="text-[11px] font-medium text-primary-600 hover:text-primary-800 px-1.5 py-0.5 rounded hover:bg-primary-50">
                       View
                     </Link>

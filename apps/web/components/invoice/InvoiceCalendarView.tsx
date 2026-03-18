@@ -189,7 +189,7 @@ export default function InvoiceCalendarView({
     setTooltip(null);
   };
 
-  const formatDate = (d: string) => new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  const formatDate = (d: string) => new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
 
   return (
     <div className="card overflow-hidden flex flex-col" style={{ height: `calc(100vh - 280px)`, minHeight: '400px' }}>

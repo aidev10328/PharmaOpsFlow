@@ -53,7 +53,7 @@ type TempFileData = {
 
 const formatDate = (d: string) => {
   const date = new Date(d);
-  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
 };
 
 export default function SubmitRequirementPage() {

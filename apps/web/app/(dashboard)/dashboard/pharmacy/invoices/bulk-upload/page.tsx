@@ -66,7 +66,7 @@ type FileRow = ExtractResult & {
   rowIndex: number; // original index in the rows array
 };
 
-const formatDate = (d: string) => new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+const formatDate = (d: string) => new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
 
 function getDateWarning(dateStr: string | undefined, label: string): string | null {
   if (!dateStr) return null;

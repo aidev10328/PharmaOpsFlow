@@ -7,7 +7,7 @@ import { apiFetch } from '../../lib/api';
 import html2canvas from 'html2canvas';
 import { captureContext } from './captureContext';
 import VoiceRecorder from './VoiceRecorder';
-import ScreenshotAnnotator from './ScreenshotAnnotator';
+import ScreenshotAnnotator, { type ScreenshotAnnotatorRef } from './ScreenshotAnnotator';
 
 // ─── Constants ────────────────────────────────────────────
 const ISSUE_TYPES = [
@@ -73,6 +73,7 @@ export default function ReportIssueDrawer({ isOpen, onClose }: Props) {
   const [annotatingCaptured, setAnnotatingCaptured] = useState(false);
   const [capturingPage, setCapturingPage] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const annotatorRef = useRef<ScreenshotAnnotatorRef>(null);
 
   // Review step — editable structured fields (auto-populated)
   const [editableReport, setEditableReport] = useState<StructuredReport | null>(null);
@@ -154,6 +155,10 @@ export default function ReportIssueDrawer({ isOpen, onClose }: Props) {
 
   // ─── Generate Report & go to Review ───────────────────────
   const goToReview = async () => {
+    // Auto-save any active annotation before proceeding
+    if ((annotatingCaptured || annotatingIndex !== null) && annotatorRef.current) {
+      annotatorRef.current.save();
+    }
     setGeneratingReport(true);
     setError('');
     try {
@@ -307,8 +312,8 @@ export default function ReportIssueDrawer({ isOpen, onClose }: Props) {
                   className="input-field text-sm"
                   autoFocus
                 />
-                {userDescription.length < 10 && userDescription.length > 0 && (
-                  <p className="field-hint text-orange-500">At least 10 characters needed ({userDescription.length}/10)</p>
+                {userDescription.length < 10 && (
+                  <p className={`field-hint ${userDescription.length > 0 ? 'text-orange-500' : 'text-gray-400'}`}>Minimum 10 characters required{userDescription.length > 0 ? ` (${userDescription.length}/10)` : ''}</p>
                 )}
               </div>
 
@@ -377,6 +382,7 @@ export default function ReportIssueDrawer({ isOpen, onClose }: Props) {
                     Annotate your screenshot — draw, arrows, text, or highlight
                   </p>
                   <ScreenshotAnnotator
+                    ref={annotatorRef}
                     imageUrl={capturedScreenshotUrl}
                     onSave={(blob) => {
                       setAnnotatedBlob(blob);
@@ -398,6 +404,7 @@ export default function ReportIssueDrawer({ isOpen, onClose }: Props) {
                 <div className="border-2 border-blue-200 rounded-lg p-3 bg-blue-50/30">
                   <p className="text-xs font-medium text-blue-700 mb-2">Annotating: {files[annotatingIndex].name}</p>
                   <ScreenshotAnnotator
+                    ref={annotatorRef}
                     imageUrl={URL.createObjectURL(files[annotatingIndex])}
                     onSave={(blob) => {
                       setAnnotatedBlob(blob);

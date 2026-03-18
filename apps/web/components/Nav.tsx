@@ -91,7 +91,7 @@ export default function Nav() {
                       Operations
                     </Link>
                     <Link href="/dashboard/manager/chat" className={navLinkClass('/dashboard/manager/chat')}>
-                      AI Chat
+                      AI Assistant
                     </Link>
                   </>
                 )}

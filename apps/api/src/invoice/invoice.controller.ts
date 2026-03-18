@@ -8,9 +8,12 @@ import {
   Param,
   Query,
   UseGuards,
+  UseInterceptors,
+  UploadedFile,
   Request,
   ForbiddenException,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -260,17 +263,24 @@ export class InvoiceController {
 
   /**
    * Mark invoice as paid (managers only)
+   * Accepts optional payment receipt file upload
    */
   @Post(':id/paid')
   @UseGuards(RolesGuard)
   @Roles(Role.ADMIN, Role.COMPANY_MANAGER)
+  @UseInterceptors(
+    FileInterceptor('receipt', {
+      limits: { fileSize: 10 * 1024 * 1024 },
+    }),
+  )
   async markPaid(
     @Param('id') id: string,
     @Body() dto: InvoiceStatusDto,
+    @UploadedFile() file: Express.Multer.File,
     @Request() req,
   ) {
     await this.validateManagerAccess(req, id);
-    return this.invoiceService.markPaid(id, req.user.id, dto);
+    return this.invoiceService.markPaid(id, req.user.id, dto, file);
   }
 
   /**
