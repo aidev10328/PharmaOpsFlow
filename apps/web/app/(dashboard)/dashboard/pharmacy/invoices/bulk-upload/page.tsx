@@ -275,7 +275,7 @@ export default function BulkUploadPage() {
 
     try {
       const token = localStorage.getItem('pharmaopsflow_token');
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/extraction/bulk-extract`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8005'}/extraction/bulk-extract`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
         body: formData,

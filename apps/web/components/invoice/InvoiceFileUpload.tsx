@@ -92,7 +92,7 @@ export default function InvoiceFileUpload({
       formData.append('file', file);
 
       const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4000'}/invoices/${invoiceId}/files`,
+        `${process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8005'}/invoices/${invoiceId}/files`,
         {
           method: 'POST',
           headers: {

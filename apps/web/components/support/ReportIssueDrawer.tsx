@@ -230,7 +230,7 @@ export default function ReportIssueDrawer({ isOpen, onClose }: Props) {
       if (audioBlob) uploads.push({ file: audioBlob, name: 'voice-recording.webm', type: 'AUDIO' });
 
       const token = localStorage.getItem('pharmaopsflow_token');
-      const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4000';
+      const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8005';
       for (const { file, name, type } of uploads) {
         const fd = new FormData();
         fd.append('file', file, name);

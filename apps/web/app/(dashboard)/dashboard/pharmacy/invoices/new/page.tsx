@@ -247,7 +247,7 @@ export default function NewInvoicePage() {
       fd.append('pharmacyId', formData.pharmacyId);
 
       const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4000'}/extraction/extract-only`,
+        `${process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8005'}/extraction/extract-only`,
         {
           method: 'POST',
           headers: { Authorization: `Bearer ${localStorage.getItem('pharmaopsflow_token')}` },
